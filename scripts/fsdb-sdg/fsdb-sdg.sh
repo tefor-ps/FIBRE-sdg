@@ -85,3 +85,7 @@ intro $0	                            # when scripts call scripts this 'sign of l
 
 dbg "TESTVAR, debug-level 1: $TESTVAR"  # demo-output for debug-level 1 
 dbg2 "TESTDIR, debug-level 2: $TESTDIR" # demo-output for debug-level 2
+
+#\\
+ 
+$FIJIONSERVER /mnt/c/Users/teforadmin/tps/gitlab/dev-dir/fsdb-sdg/scripts/Fiji.app/macros/fsdb.fsdb-sdg/alive.ijm
