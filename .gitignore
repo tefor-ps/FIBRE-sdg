@@ -1,6 +1,5 @@
 **/*.config
 .scripts.config
-**/scripts/Fiji.app/*
 *~
 **/*#$
 **/*#
