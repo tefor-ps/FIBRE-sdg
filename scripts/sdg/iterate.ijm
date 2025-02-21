@@ -33,7 +33,7 @@ function listFiles(dir) {
 				rename(title);
 				//waitForUser;
 				runMacro(MACRODIR+"interpolateBetweenSlices.ijm");
-				runMacro(MACRODIR+"crop.8.ijm");
+				runMacro(MACRODIR+"crop.ijm");
 				run("Close All");
 				run("Collect Garbage");
 				run("Collect Garbage");

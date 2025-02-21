@@ -69,21 +69,25 @@ local config files (*.config) are explicitly ignored by git (.gitignore).
 
 README
 
-fsdbDir="../../../fsdb-minimal"
-debug=2
+thisDir="$(dirname "$(realpath "$0")")"                   # gets the directory of this script. thisDir is used by getVar.sh to find the local config-file. 
+fsdbDir="$(realpath "$thisDir/../../../fsdb-minimal")"    # defines directory of core-functions of the fsdb    
 
 #============================
 # define variables of the fsdb
 #============================
 # set all global variables
-thisDir="$(dirname "$(realpath "$0")")"       # gets the directory of this script. thisDir is used by getVar.sh to find the local config-file. 
 GV=$(find "$fsdbDir" -name getVar.sh) # getVar.sh builds the central config-file of the fsdb and populates/exports the name-value pairs within to all scripts which are sourcing it. 
 echo "$(realpath $GV)"                # just an echo to facilitate the retrieval and study of getVar.sh
 if [[ -f "${GV}" ]]; then
 	source "${GV}"                    # integrate everything in getVar.sh here, run it.
 else
-	FIJIONSERVER=
-	
+	FIJIONSERVER="$fsdbDir/scripts/core/fijiOnServer.sh"
+
+
+fi
+
+debug=2
+
 intro $0	                            # when scripts call scripts this 'sign of life' shows, which one is currently running.  
 
 dbg "TESTVAR, debug-level 1: $TESTVAR"  # demo-output for debug-level 1 
