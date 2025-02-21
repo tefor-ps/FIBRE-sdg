@@ -96,7 +96,30 @@ dbg2 "TESTDIR, debug-level 2: $TESTDIR" # demo-output for debug-level 2
 #\\
  
 #$FIJIONSERVER /mnt/c/Users/teforadmin/tps/gitlab/dev-dir/fsdb-sdg/scripts/Fiji.app/macros/fsdb.fsdb-sdg/alive.ijm
-$FIJIONSERVER /mnt/c/Users/teforadmin/tps/gitlab/dev-dir/secDataGeneration/scripts/Fiji.app/macros/sdg/alive.ijm
+#$FIJIONSERVER /mnt/c/Users/teforadmin/tps/gitlab/dev-dir/secDataGeneration/scripts/Fiji.app/macros/sdg/alive.ijm
+#$FIJIONSERVER "$thisDir/../Fiji.app/macros/fsdb.sdg/alive.ijm"
 
 
+if [[ "$(file --brief -i "$1" |cut -d "/" -f 2 |cut -d ";" -f 1)" == "octet-stream"  ]]; then
+	echo "processing image $1"
+	$FIJIONSERVER "$(realpath "$thisDir/../Fiji.app/macros/fsdb.sdg/iterate.ijm")" $1
 
+elif [[ "$(file --brief -i "$1" |cut -d "/" -f 2 |cut -d ";" -f 1)" == "plain"  ]]; then
+	echo "processing content of $1:"
+	cat $1
+	cat "$1" |while read i; do 
+		$FIJIONSERVER "$(realpath "$thisDir/../Fiji.app/macros/fsdb.sdg/iterate.ijm")" $i
+	done
+
+elif [[ "$(file --brief -i "$1" |cut -d "/" -f 2 |cut -d ";" -f 1)" == "directory"  ]]; then
+	echo "processing raw data in $1:"
+	find $1 -type f -name "*nd2"
+	find $1 -type f -name "*nd2" |while read i; do 
+		$FIJIONSERVER "$(realpath "$thisDir/../Fiji.app/macros/fsdb.sdg/iterate.ijm")" $i
+	done
+
+else 
+	echo "ERROR: can not decipher $1. Exiting."
+	exit
+
+fi
