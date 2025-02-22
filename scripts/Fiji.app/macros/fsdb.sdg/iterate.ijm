@@ -26,7 +26,7 @@ if (param == "") {
 }
 
 if (getInfo("os.name") == "Linux" ) {
-	MACRODIR="/home/teforadmin/tps/gitlab/dev-dir/secDataGeneration/scripts/Fiji.app/macros/fsdb.sdg";
+	MACRODIR=exec("bash", "-c", "dirname $(realpath $(find . -name iterate.ijm))");
 } else {
 	MACRODIR="K:/stageTheo/";
 }
