@@ -77,7 +77,7 @@ fsdbDir="$(realpath "$thisDir/../../../fsdb-minimal")"    # defines directory of
 #============================
 # set all global variables
 GV=$(find "$fsdbDir" -name getVar.sh) # getVar.sh builds the central config-file of the fsdb and populates/exports the name-value pairs within to all scripts which are sourcing it. 
-echo "$(realpath $GV)"                # just an echo to facilitate the retrieval and study of getVar.sh
+realpath "$GV"                # just an echo to facilitate the retrieval and study of getVar.sh
 if [[ -f "${GV}" ]]; then
 	source "${GV}"                    # integrate everything in getVar.sh here, run it.
 else
@@ -101,23 +101,23 @@ dbg2 "TESTDIR, debug-level 2: $TESTDIR" # demo-output for debug-level 2
 #$FIJIONSERVER "$thisDir/../Fiji.app/macros/fsdb.sdg/alive.ijm"
 $FIJIONSERVER "$(find "$thisDir/../Fiji.app" -name alive.ijm)"
 
-<<PAUSED
+<<INACTIVE
 if [[ "$(file --brief -i "$1" |cut -d "/" -f 2 |cut -d ";" -f 1)" == "octet-stream"  ]]; then
 	echo "processing image $1"
-	$FIJIONSERVER "$(realpath "$thisDir/../Fiji.app/macros/fsdb.sdg/iterate.ijm")" $1
+	$FIJIONSERVER "$(realpath "$thisDir/../Fiji.app/macros/fsdb.sdg/iterate.ijm")" "$1"
 
 elif [[ "$(file --brief -i "$1" |cut -d "/" -f 2 |cut -d ";" -f 1)" == "plain"  ]]; then
 	echo "processing content of $1:"
-	cat $1
+	cat "$1"
 	cat "$1" |while read i; do 
-		$FIJIONSERVER "$(realpath "$thisDir/../Fiji.app/macros/fsdb.sdg/iterate.ijm")" $i
+		$FIJIONSERVER "$(realpath "$thisDir/../Fiji.app/macros/fsdb.sdg/iterate.ijm")" "$i"
 	done
 
 elif [[ "$(file --brief -i "$1" |cut -d "/" -f 2 |cut -d ";" -f 1)" == "directory"  ]]; then
 	echo "processing raw data in $1:"
 	find $1 -type f -name "*nd2"
-	find $1 -type f -name "*nd2" |while read i; do 
-		$FIJIONSERVER "$(realpath "$thisDir/../Fiji.app/macros/fsdb.sdg/iterate.ijm")" $i
+	find $1 -type f -name "*nd2" |while read -r i; do 
+		$FIJIONSERVER "$(realpath "$thisDir/../Fiji.app/macros/fsdb.sdg/iterate.ijm")" "$i"
 	done
 
 else 
@@ -126,4 +126,4 @@ else
 
 fi
 
-PAUSED
+INACTIVE
