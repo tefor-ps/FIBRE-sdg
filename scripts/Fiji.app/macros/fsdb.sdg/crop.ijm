@@ -6,7 +6,7 @@ close("\\Others");
 // 0 : very little output
 // 1 : more output
 // 2 : interactive, stops at the beginning of each function. 
-debuglevel=1;
+debuglevel=0;
 
 title=split(getTitle(), "/");
 title=title[lengthOf(title)-1];
@@ -319,7 +319,7 @@ function makeOutDir(indir){
 	if (debuglevel > 0) { print("makeOutDir", getTitle()); }
 	if (debuglevel > 1) { waitForUser; }
 	//indir=replace(getDirectory("image"),"\\", "/");
-	outdir=indir+bn+"-secData";
+	outdir=indir+"/"+bn+"-secData";
 	
 	if ( File.isDirectory(outdir) == 0 ){
 		File.makeDirectory(outdir);

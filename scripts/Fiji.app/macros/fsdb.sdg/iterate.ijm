@@ -30,7 +30,7 @@ if (getInfo("os.name") == "Linux" ) {
 } else {
 	MACRODIR="K:/stageTheo/";
 }
-
+print(MACRODIR);
 
 count = 1;
 print("\\Clear");
