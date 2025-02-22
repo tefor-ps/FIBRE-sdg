@@ -99,7 +99,7 @@ dbg2 "TESTDIR, debug-level 2: $TESTDIR" # demo-output for debug-level 2
 #$FIJIONSERVER /mnt/c/Users/teforadmin/tps/gitlab/dev-dir/fsdb-sdg/scripts/Fiji.app/macros/fsdb.fsdb-sdg/alive.ijm
 #$FIJIONSERVER /mnt/c/Users/teforadmin/tps/gitlab/dev-dir/secDataGeneration/scripts/Fiji.app/macros/sdg/alive.ijm
 #$FIJIONSERVER "$thisDir/../Fiji.app/macros/fsdb.sdg/alive.ijm"
-$FIJIONSERVER "$(find "$thisDir/../Fiji.app" -name alive.ijm)"
+$FIJIONSERVER "$(find "$(realpath "$thisDir/../Fiji.app")" -name alive.ijm)"
 
 <<INACTIVE
 if [[ "$(file --brief -i "$1" |cut -d "/" -f 2 |cut -d ";" -f 1)" == "octet-stream"  ]]; then
