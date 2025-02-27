@@ -185,6 +185,7 @@ function saveAndExport(suff){
 	iid=getImageID();
 	saveAs("Tiff", outdir+"/"+bn+"."+suff+".tif");
 	print(outdir+"/"+bn+"."+suff+".tif");
+	if (debuglevel > 1) { File.append(outdir+"/"+bn+"."+suff+".tif", LOG); }
 	makeMIP(suff);
 	exportNrrds(suff);
 }	
@@ -207,6 +208,8 @@ function exportNrrds(suff){
 		}
 		selectImage(iid-i);
 		run("Nrrd ... ", "nrrd="+outfile);
+		if (debuglevel > 1) { File.append(outfile, LOG); }
+
 	}
 	close("*nrrd");
 }
