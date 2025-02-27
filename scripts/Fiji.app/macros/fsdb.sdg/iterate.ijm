@@ -65,9 +65,6 @@ if (getInfo("os.name") == "Linux" ) {
 print(MACRODIR);
 File.append(MACRODIR, LOG);
 
-//========
-// 'MAIN'
-//========
 count = 1;
 print("\\Clear");
 selectWindow("Log");
@@ -81,10 +78,6 @@ if (mode == "file"){
 }
 print("done.");
 run("Quit");
-
-// ====================
-// FUNCTION DEFINITIONS
-// ====================
 
 function listFiles(dir) {
 	File.append("listFiles", LOG);
