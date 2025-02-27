@@ -17,19 +17,21 @@ debuglevel=2;
 		f=File.open(LOG);
 		File.close(f);
 	}
-	getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
-	print(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
-	print(IJ.pad(substring(year,2,4),2), IJ.pad(month,2), IJ.pad(dayOfMonth,2), IJ.pad(hour,2), IJ.pad(minute,2), IJ.pad(second,2), IJ.pad(msec,2));
-	y=toString(IJ.pad(substring(year,2,4),2));
-	m=toString(IJ.pad(month,2));
-	d=toString(IJ.pad(dayOfMonth,2));
-	h=toString(IJ.pad(hour,2));
-	M=toString(IJ.pad(minute,2)); 
-	s=toString(IJ.pad(second,2));
-	ts=y+m+d+"-"+h+M+s;
-	print(ts);
-	if (debuglevel > 1) { File.append("crop "+ts, LOG); }
-
+	function makeTS(){
+		getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+		print(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+		print(IJ.pad(substring(year,2,4),2), IJ.pad(month,2), IJ.pad(dayOfMonth,2), IJ.pad(hour,2), IJ.pad(minute,2), IJ.pad(second,2), IJ.pad(msec,2));
+		y=toString(IJ.pad(substring(year,2,4),2));
+		m=toString(IJ.pad(month,2));
+		d=toString(IJ.pad(dayOfMonth,2));
+		h=toString(IJ.pad(hour,2));
+		M=toString(IJ.pad(minute,2)); 
+		s=toString(IJ.pad(second,2));
+		ts=y+m+d+"-"+h+M+s;
+		print(ts);
+		if (debuglevel > 1) { File.append(ts, LOG); }
+	}
+	makeTS();
 
 title=split(getTitle(), "/");
 title=title[lengthOf(title)-1];
@@ -75,6 +77,8 @@ saveAndExport("head");
 
 //run("Close All");
 run("Collect Garbage");
+
+makeTS();
 
 // ====================
 // FUNCTION DEFINITIONS
