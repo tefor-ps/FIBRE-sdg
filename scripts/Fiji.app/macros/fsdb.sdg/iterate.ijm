@@ -48,6 +48,7 @@ if (param == "") {
 		if (File.exists(param)) {
 			fp=param;
 			mode="file";
+			File.append("working on "+fp, LOG);
 		} else {
 			mode="error";
 		}
@@ -87,8 +88,10 @@ function listFiles(dir) {
 		if (endsWith(list[i], "/")) {
 			listFiles(""+dir+list[i]);
 		} else {
+// TODO: flexibilize: allow other file types e.g., by repeating and modifying the following if-statement			
 			if (endsWith(list[i], "merge.nd2")) {
 				print((count++)+": "+dir+list[i]);
+				File.append("working on "+dir+list[i], LOG);
 				process(dir+list[i]);
 			}
 		}
