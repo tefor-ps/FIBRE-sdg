@@ -50,7 +50,7 @@ if (param == "") {
 	File.append(getInfo("os.name"), LOG);
 
 if (getInfo("os.name") == "Linux" ) {
-	MACRODIR=exec("bash", "-c", "dirname $(realpath $(find . -name iterate.ijm))");
+	MACRODIR=replace(exec("bash", "-c", "dirname $(realpath $(find . -name iterate.ijm |grep fsdb.sdg))"), "\n","");
 } else {
 	MACRODIR="K:/stageTheo/";
 }
