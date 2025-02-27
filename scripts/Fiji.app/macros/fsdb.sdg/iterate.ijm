@@ -17,19 +17,21 @@ print(param);
 		f=File.open(LOG);
 		File.close(f);
 	}
-	getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
-	print(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
-	print(IJ.pad(substring(year,2,4),2), IJ.pad(month,2), IJ.pad(dayOfMonth,2), IJ.pad(hour,2), IJ.pad(minute,2), IJ.pad(second,2), IJ.pad(msec,2));
-	y=toString(IJ.pad(substring(year,2,4),2));
-	m=toString(IJ.pad(month,2));
-	d=toString(IJ.pad(dayOfMonth,2));
-	h=toString(IJ.pad(hour,2));
-	M=toString(IJ.pad(minute,2)); 
-	s=toString(IJ.pad(second,2));
-	ts=y+m+d+"-"+h+M+s;
-	print(ts);
-	File.append(ts, LOG);
-
+	function makeTS(){
+		getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+		print(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+		print(IJ.pad(substring(year,2,4),2), IJ.pad(month,2), IJ.pad(dayOfMonth,2), IJ.pad(hour,2), IJ.pad(minute,2), IJ.pad(second,2), IJ.pad(msec,2));
+		y=toString(IJ.pad(substring(year,2,4),2));
+		m=toString(IJ.pad(month,2));
+		d=toString(IJ.pad(dayOfMonth,2));
+		h=toString(IJ.pad(hour,2));
+		M=toString(IJ.pad(minute,2)); 
+		s=toString(IJ.pad(second,2));
+		ts=y+m+d+"-"+h+M+s;
+		print(ts);
+		File.append(ts, LOG);
+	}
+	makeTS();
 
 if (param == "") {
 	dir = getDirectory("Choose a Directory ");
@@ -89,6 +91,7 @@ function listFiles(dir) {
 
 function process(path){
 	File.append("process", LOG);
+	makeTS();
 	run("Bio-Formats Windowless Importer", "open="+path);
 	File.append("loaded "+getTitle(), LOG);
 // Bioformats sometimes assigns the complete path as title. This causes trouble downstream. 
@@ -110,4 +113,5 @@ function process(path){
 	run("Collect Garbage");
 	run("Collect Garbage");
 	run("Collect Garbage");
+	makeTS();
 }
