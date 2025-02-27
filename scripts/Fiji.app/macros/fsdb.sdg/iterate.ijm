@@ -36,6 +36,8 @@ if (param == "") {
 		if (File.exists(param)) {
 			fp=param;
 			mode="file";
+		} else {
+			mode="error";
 		}
 	}
 }
@@ -117,8 +119,8 @@ function process(path){
 
 function makeTS(){
 	getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
-	print(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
-	print(IJ.pad(substring(year,2,4),2), IJ.pad(month,2), IJ.pad(dayOfMonth,2), IJ.pad(hour,2), IJ.pad(minute,2), IJ.pad(second,2), IJ.pad(msec,2));
+	//print(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+	//print(IJ.pad(substring(year,2,4),2), IJ.pad(month,2), IJ.pad(dayOfMonth,2), IJ.pad(hour,2), IJ.pad(minute,2), IJ.pad(second,2), IJ.pad(msec,2));
 	y=toString(IJ.pad(substring(year,2,4),2));
 	m=toString(IJ.pad(month,2));
 	d=toString(IJ.pad(dayOfMonth,2));
