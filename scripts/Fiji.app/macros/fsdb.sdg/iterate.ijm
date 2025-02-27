@@ -28,6 +28,8 @@ print(param);
 	s=toString(IJ.pad(second,2));
 	ts=y+m+d+"-"+h+M+s;
 	print(ts);
+	File.append(ts, LOG);
+
 
 if (param == "") {
 	dir = getDirectory("Choose a Directory ");

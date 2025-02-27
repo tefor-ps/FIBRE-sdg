@@ -5,8 +5,31 @@ close("\\Others");
 // the debuglevel adjusts the level of verbosity and interactivity
 // 0 : very little output
 // 1 : more output
-// 2 : interactive, stops at the beginning of each function. 
-debuglevel=0;
+// 2 : logging enabled
+// 3 : interactive, stops at the beginning of each function. 
+debuglevel=2;
+
+	LOGDIR=getDirectory("imagej")+"logs/";
+	print(LOGDIR);
+	File.makeDirectory(LOGDIR);
+	LOG=LOGDIR+"iterate.log";
+	if (File.exists(LOG) == 0){
+		f=File.open(LOG);
+		File.close(f);
+	}
+	getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+	print(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+	print(IJ.pad(substring(year,2,4),2), IJ.pad(month,2), IJ.pad(dayOfMonth,2), IJ.pad(hour,2), IJ.pad(minute,2), IJ.pad(second,2), IJ.pad(msec,2));
+	y=toString(IJ.pad(substring(year,2,4),2));
+	m=toString(IJ.pad(month,2));
+	d=toString(IJ.pad(dayOfMonth,2));
+	h=toString(IJ.pad(hour,2));
+	M=toString(IJ.pad(minute,2)); 
+	s=toString(IJ.pad(second,2));
+	ts=y+m+d+"-"+h+M+s;
+	print(ts);
+	if (debuglevel > 1) { File.append(ts, LOG); }
+
 
 title=split(getTitle(), "/");
 title=title[lengthOf(title)-1];
@@ -59,7 +82,8 @@ run("Collect Garbage");
 
 function unmix23(){
 	if (debuglevel > 0) { print("unmix23", getTitle()); }
-	if (debuglevel > 1) { waitForUser; }
+	if (debuglevel > 1) { File.append("unmix23", LOG); }
+	if (debuglevel > 2) { waitForUser; }
 	run("Select None");
 	rename("UNMIX");
 	run("Split Channels");
@@ -73,7 +97,8 @@ function unmix23(){
 
 function deinterleave(){
 	if (debuglevel > 0) { print("deinterleave", getTitle()); }
-	if (debuglevel > 1) { waitForUser; }
+	if (debuglevel > 1) { File.append("deinterleave", LOG); }
+	if (debuglevel > 2) { waitForUser; }
 	getDimensions(w, h, c, s, f);
 	if (imgc != c){
 		print("deinterleaving.");
@@ -92,7 +117,8 @@ function deinterleave(){
 
 function makeMIP( suff){
 	if (debuglevel > 0) { print("makeMIP", suff, getTitle()); }
-	if (debuglevel > 1) { waitForUser; }
+	if (debuglevel > 1) { File.append("makeMIP "+suff, LOG); }
+	if (debuglevel > 2) { waitForUser; }
 	iid=getImageID();
 	run("Z Project...", "projection=[Max Intensity]");
 	correctColors();
@@ -103,7 +129,8 @@ function makeMIP( suff){
 
 function correctColors(){
 	if (debuglevel > 0) { print("correctColors", getTitle()); }
-	if (debuglevel > 1) { waitForUser; }
+	if (debuglevel > 1) { File.append("correctColors", LOG); }
+	if (debuglevel > 2) { waitForUser; }
 	colArr=newArray("Grey", "Red", "Green", "Blue", "Cyan", "Magenta", "Yellow");
 	if (imgc == 1){
 		run(colArr[0]);
@@ -119,7 +146,8 @@ function correctColors(){
 function cropToSpecimen(iid, suff, fh){
 	selectImage(iid);
 	if (debuglevel > 0) { print("cropToSpecimen", iid, suff, fh, getTitle()); }
-	if (debuglevel > 1) { waitForUser; }
+	if (debuglevel > 1) { File.append("cropToSpecimen "+iid+" "+suff+" "+fh , LOG); }
+	if (debuglevel > 2) { waitForUser; }
 	
 	cropToROI(iid);
 
@@ -152,7 +180,8 @@ function cropToSpecimen(iid, suff, fh){
 
 function saveAndExport(suff){
 	if (debuglevel > 0) { print("saveAndExport", suff, getTitle()); }
-	if (debuglevel > 1) { waitForUser; }
+	if (debuglevel > 1) { File.append("saveAndExport "+suff, LOG); }
+	if (debuglevel > 2) { waitForUser; }
 	iid=getImageID();
 	saveAs("Tiff", outdir+"/"+bn+"."+suff+".tif");
 	print(outdir+"/"+bn+"."+suff+".tif");
@@ -162,7 +191,8 @@ function saveAndExport(suff){
 
 function exportNrrds(suff){
 	if (debuglevel > 0) { print("exportNrrds", suff, getTitle()); }
-	if (debuglevel > 1) { waitForUser; }
+	if (debuglevel > 1) { File.append("exportNrrds "+suff, LOG); }
+	if (debuglevel > 2) { waitForUser; }
 	run("Duplicate...", "title=NRRD duplicate");
 	getDimensions(w, h, c, s, f);
 	iid=getImageID();
@@ -183,7 +213,8 @@ function exportNrrds(suff){
 
 function fuseChannels(iid){
 	if (debuglevel > 0) { print("fuseChannels", iid, getTitle()); }
-	if (debuglevel > 1) { waitForUser; }
+	if (debuglevel > 1) { File.append("fuseChannels "+iid, LOG); }
+	if (debuglevel > 2) { waitForUser; }
 	run("Z Project...", "projection=[Max Intensity]");
 	tid=getImageID();
 	selectImage(tid);
@@ -211,7 +242,8 @@ function fuseChannels(iid){
 
 function cropToROI(iid){
 	if (debuglevel > 0) { print("cropToROI", iid, getTitle()); }
-	if (debuglevel > 1) { waitForUser; }
+	if (debuglevel > 1) { File.append("cropToROI "+iid, LOG); }
+	if (debuglevel > 2) { waitForUser; }
 	
 	if (imgc > 1){
 		TID=fuseChannels(iid);
@@ -250,7 +282,8 @@ function cropToROI(iid){
 
 function findHead(iid){
 	if (debuglevel > 0) { print("findHead", iid, getTitle()); }
-	if (debuglevel > 1) { waitForUser; }
+	if (debuglevel > 1) { File.append("findHead "+iid, LOG); }
+	if (debuglevel > 2) { waitForUser; }
 	frac=5;
 	getDimensions(w, h, c, s, f);
 	selectImage(iid);
@@ -298,7 +331,8 @@ function findHead(iid){
 
 function cropToHead(iid){
 	if (debuglevel > 0) { print("cropToHead", getTitle()); }
-	if (debuglevel > 1) { waitForUser; }
+	if (debuglevel > 1) { File.append("cropToHead", LOG); }
+	if (debuglevel > 2) { waitForUser; }
 	selectImage(iid);
 	getDimensions(w, h, c, s, f);
 	makeRectangle(0, 0, w/3, h);
@@ -317,7 +351,8 @@ function cropToHead(iid){
 
 function makeOutDir(indir){
 	if (debuglevel > 0) { print("makeOutDir", getTitle()); }
-	if (debuglevel > 1) { waitForUser; }
+	if (debuglevel > 1) { File.append("makeOutDir", LOG); }
+	if (debuglevel > 2) { waitForUser; }
 	//indir=replace(getDirectory("image"),"\\", "/");
 	outdir=indir+"/"+bn+"-secData";
 	
@@ -329,7 +364,8 @@ function makeOutDir(indir){
 
 function getBiggestROI() { 
 	if (debuglevel > 0) { print("getBiggestROI", iid, getTitle()); }
-	if (debuglevel > 1) { waitForUser; }
+	if (debuglevel > 1) { File.append("getBiggestROI "+iid, LOG); }
+	if (debuglevel > 2) { waitForUser; }
 
 	if (roiManager("size") > 0) {
 	roiManager("Select", 0);
@@ -363,7 +399,8 @@ function getBiggestROI() {
 
 function rotateToHorizontal(iid, suff){
 	if (debuglevel > 0) { print("rotateToHorizontal", iid, getTitle()); }
-	if (debuglevel > 1) { waitForUser; }
+	if (debuglevel > 1) { File.append("rotateToHorizontal "+iid, LOG); }
+	if (debuglevel > 2) { waitForUser; }
 	
 	suff=suff+".rot";
 
@@ -401,7 +438,8 @@ function rotateToHorizontal(iid, suff){
 
 function writeTransformationMatrix(suff){
 	if (debuglevel > 0) { print("writeTransformationMatrix", getTitle()); }
-	if (debuglevel > 1) { waitForUser; }
+	if (debuglevel > 1) { File.append("writeTransformationMatrix", LOG); }
+	if (debuglevel > 2) { waitForUser; }
 
 	oneline=1;
 	A=cos((PI*rotation)/180);
