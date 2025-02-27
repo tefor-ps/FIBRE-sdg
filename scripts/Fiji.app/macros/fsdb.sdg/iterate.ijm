@@ -12,7 +12,7 @@ print(param);
 	LOGDIR=getDirectory("imagej")+"logs/";
 	print(LOGDIR);
 	File.makeDirectory(LOGDIR);
-	LOG=LOGDIR+"iterate.log";
+	LOG=LOGDIR+"/iterate.log";
 	if (File.exists(LOG) == 0){
 		f=File.open(LOG);
 		File.close(f);
@@ -102,7 +102,8 @@ function process(path){
 	//runMacro(MACRODIR+"/interpolateBetweenSlices.ijm");
 // crop image
 // - to the specimen (and rotate its head to the left)
-// - to the head				
+// - to the head
+	File.append(MACRODIR+"/crop.ijm", LOG);
 	runMacro(MACRODIR+"/crop.ijm");
 // Clean up and liberate the memory	
 	run("Close All");

@@ -12,7 +12,7 @@ debuglevel=2;
 	LOGDIR=getDirectory("imagej")+"logs/";
 	print(LOGDIR);
 	File.makeDirectory(LOGDIR);
-	LOG=LOGDIR+"crop.log";
+	LOG=LOGDIR+"/crop.log";
 	if (File.exists(LOG) == 0){
 		f=File.open(LOG);
 		File.close(f);
@@ -28,7 +28,7 @@ debuglevel=2;
 	s=toString(IJ.pad(second,2));
 	ts=y+m+d+"-"+h+M+s;
 	print(ts);
-	if (debuglevel > 1) { File.append(ts, LOG); }
+	if (debuglevel > 1) { File.append("crop "+ts, LOG); }
 
 
 title=split(getTitle(), "/");
