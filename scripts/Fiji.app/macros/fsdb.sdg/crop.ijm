@@ -9,6 +9,9 @@ close("\\Others");
 // 3 : interactive, stops at the beginning of each function. 
 debuglevel=2;
 
+//========
+// LOGGING
+//========
 	LOGDIR=getDirectory("imagej")+"logs/";
 	print(LOGDIR);
 	File.makeDirectory(LOGDIR);
@@ -17,22 +20,11 @@ debuglevel=2;
 		f=File.open(LOG);
 		File.close(f);
 	}
-	function makeTS(){
-		getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
-		print(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
-		print(IJ.pad(substring(year,2,4),2), IJ.pad(month,2), IJ.pad(dayOfMonth,2), IJ.pad(hour,2), IJ.pad(minute,2), IJ.pad(second,2), IJ.pad(msec,2));
-		y=toString(IJ.pad(substring(year,2,4),2));
-		m=toString(IJ.pad(month,2));
-		d=toString(IJ.pad(dayOfMonth,2));
-		h=toString(IJ.pad(hour,2));
-		M=toString(IJ.pad(minute,2)); 
-		s=toString(IJ.pad(second,2));
-		ts=y+m+d+"-"+h+M+s;
-		print(ts);
-		if (debuglevel > 1) { File.append(ts, LOG); }
-	}
 	makeTS();
-
+	
+//========
+// 'MAIN'
+//========
 title=split(getTitle(), "/");
 title=title[lengthOf(title)-1];
 rename(title);
@@ -83,6 +75,21 @@ makeTS();
 // ====================
 // FUNCTION DEFINITIONS
 // ====================
+
+function makeTS(){
+	getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+	print(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+	print(IJ.pad(substring(year,2,4),2), IJ.pad(month,2), IJ.pad(dayOfMonth,2), IJ.pad(hour,2), IJ.pad(minute,2), IJ.pad(second,2), IJ.pad(msec,2));
+	y=toString(IJ.pad(substring(year,2,4),2));
+	m=toString(IJ.pad(month,2));
+	d=toString(IJ.pad(dayOfMonth,2));
+	h=toString(IJ.pad(hour,2));
+	M=toString(IJ.pad(minute,2)); 
+	s=toString(IJ.pad(second,2));
+	ts=y+m+d+"-"+h+M+s;
+	print(ts);
+	if (debuglevel > 1) { File.append(ts, LOG); }
+}
 
 function unmix23(){
 	if (debuglevel > 0) { print("unmix23", getTitle()); }

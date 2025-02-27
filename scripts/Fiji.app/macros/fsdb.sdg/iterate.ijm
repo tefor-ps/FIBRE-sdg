@@ -9,30 +9,22 @@ mode="";
 print(param);
 
 //TODO: integrate fsdb-vars
-	LOGDIR=getDirectory("imagej")+"logs/";
-	print(LOGDIR);
-	File.makeDirectory(LOGDIR);
-	LOG=LOGDIR+"/iterate.log";
-	if (File.exists(LOG) == 0){
-		f=File.open(LOG);
-		File.close(f);
-	}
-	function makeTS(){
-		getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
-		print(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
-		print(IJ.pad(substring(year,2,4),2), IJ.pad(month,2), IJ.pad(dayOfMonth,2), IJ.pad(hour,2), IJ.pad(minute,2), IJ.pad(second,2), IJ.pad(msec,2));
-		y=toString(IJ.pad(substring(year,2,4),2));
-		m=toString(IJ.pad(month,2));
-		d=toString(IJ.pad(dayOfMonth,2));
-		h=toString(IJ.pad(hour,2));
-		M=toString(IJ.pad(minute,2)); 
-		s=toString(IJ.pad(second,2));
-		ts=y+m+d+"-"+h+M+s;
-		print(ts);
-		File.append(ts, LOG);
-	}
-	makeTS();
+//========
+// LOGGING
+//========
+LOGDIR=getDirectory("imagej")+"logs/";
+print(LOGDIR);
+File.makeDirectory(LOGDIR);
+LOG=LOGDIR+"/iterate.log";
+if (File.exists(LOG) == 0){
+	f=File.open(LOG);
+	File.close(f);
+}
+makeTS();
 
+//========
+// TOGGLES
+//========
 if (param == "") {
 	dir = getDirectory("Choose a Directory ");
 	mode="dir";
@@ -59,6 +51,9 @@ if (getInfo("os.name") == "Linux" ) {
 print(MACRODIR);
 File.append(MACRODIR, LOG);
 
+//========
+// 'MAIN'
+//========
 count = 1;
 print("\\Clear");
 selectWindow("Log");
@@ -72,6 +67,10 @@ if (mode == "file"){
 }
 print("done.");
 run("Quit");
+
+// ====================
+// FUNCTION DEFINITIONS
+// ====================
 
 function listFiles(dir) {
 	File.append("listFiles", LOG);
@@ -114,4 +113,19 @@ function process(path){
 	run("Collect Garbage");
 	run("Collect Garbage");
 	makeTS();
+}
+
+function makeTS(){
+	getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+	print(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+	print(IJ.pad(substring(year,2,4),2), IJ.pad(month,2), IJ.pad(dayOfMonth,2), IJ.pad(hour,2), IJ.pad(minute,2), IJ.pad(second,2), IJ.pad(msec,2));
+	y=toString(IJ.pad(substring(year,2,4),2));
+	m=toString(IJ.pad(month,2));
+	d=toString(IJ.pad(dayOfMonth,2));
+	h=toString(IJ.pad(hour,2));
+	M=toString(IJ.pad(minute,2)); 
+	s=toString(IJ.pad(second,2));
+	ts=y+m+d+"-"+h+M+s;
+	print(ts);
+	File.append(ts, LOG);
 }
