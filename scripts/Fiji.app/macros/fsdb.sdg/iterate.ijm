@@ -96,7 +96,7 @@ function process(path){
 	rename(title);
 	File.append(getTitle(), LOG);
 // make non-isotropic images isotropic 
-	runMacro(MACRODIR+"/interpolateBetweenSlices.ijm");
+	//runMacro(MACRODIR+"/interpolateBetweenSlices.ijm");
 // crop image
 // - to the specimen (and rotate its head to the left)
 // - to the head				
