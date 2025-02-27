@@ -55,6 +55,7 @@ if (getInfo("os.name") == "Linux" ) {
 	MACRODIR="K:/stageTheo/";
 }
 print(MACRODIR);
+File.append(MACRODIR, LOG);
 
 count = 1;
 print("\\Clear");
@@ -89,14 +90,14 @@ function listFiles(dir) {
 function process(path){
 	File.append("process", LOG);
 	run("Bio-Formats Windowless Importer", "open="+path);
-	File.append(getTitle(), LOG);
+	File.append("loaded "+getTitle(), LOG);
 // Bioformats sometimes assigns the complete path as title. This causes trouble downstream. 
 // Therefore we strip the path off the image and rename it with its filename only.
 	print(getTitle());
 	tmp=split(getTitle(), "/");
 	title=tmp[lengthOf(tmp)-1];
 	rename(title);
-	File.append(getTitle(), LOG);
+	File.append("renamed to "+getTitle(), LOG);
 // make non-isotropic images isotropic 
 	//runMacro(MACRODIR+"/interpolateBetweenSlices.ijm");
 // crop image
