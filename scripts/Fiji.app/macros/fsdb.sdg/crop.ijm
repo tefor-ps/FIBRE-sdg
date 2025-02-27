@@ -12,7 +12,7 @@ debuglevel=2;
 	LOGDIR=getDirectory("imagej")+"logs/";
 	print(LOGDIR);
 	File.makeDirectory(LOGDIR);
-	LOG=LOGDIR+"iterate.log";
+	LOG=LOGDIR+"crop.log";
 	if (File.exists(LOG) == 0){
 		f=File.open(LOG);
 		File.close(f);
