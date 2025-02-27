@@ -9,6 +9,9 @@ mode="";
 print(param);
 
 //TODO: integrate fsdb-vars
+//========
+// LOGGING
+//========
 	LOGDIR=getDirectory("imagej")+"logs/";
 	print(LOGDIR);
 	File.makeDirectory(LOGDIR);
@@ -31,6 +34,9 @@ print(param);
 	File.append(ts, LOG);
 
 
+//========
+// TOGGLES
+//========
 if (param == "") {
 	dir = getDirectory("Choose a Directory ");
 	mode="dir";
@@ -42,12 +48,14 @@ if (param == "") {
 		if (File.exists(param)) {
 			fp=param;
 			mode="file";
+		} else {
+			mode="error";
 		}
 	}
 }
 
-	File.append(mode+" "+ts, LOG);
-	File.append(getInfo("os.name"), LOG);
+File.append(mode+" "+ts, LOG);
+File.append(getInfo("os.name"), LOG);
 
 if (getInfo("os.name") == "Linux" ) {
 	MACRODIR=replace(exec("bash", "-c", "dirname $(realpath $(find . -name iterate.ijm |grep fsdb.sdg))"), "\n","");
@@ -57,6 +65,9 @@ if (getInfo("os.name") == "Linux" ) {
 print(MACRODIR);
 File.append(MACRODIR, LOG);
 
+//========
+// 'MAIN'
+//========
 count = 1;
 print("\\Clear");
 selectWindow("Log");
@@ -70,6 +81,10 @@ if (mode == "file"){
 }
 print("done.");
 run("Quit");
+
+// ====================
+// FUNCTION DEFINITIONS
+// ====================
 
 function listFiles(dir) {
 	File.append("listFiles", LOG);
