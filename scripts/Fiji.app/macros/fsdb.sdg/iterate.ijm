@@ -40,8 +40,8 @@ if (param == "") {
 	}
 }
 
-	File.append(mode+" "+ts, LOG);
-	File.append(getInfo("os.name"), LOG);
+File.append(mode+" "+ts, LOG);
+File.append(getInfo("os.name"), LOG);
 
 if (getInfo("os.name") == "Linux" ) {
 	MACRODIR=replace(exec("bash", "-c", "dirname $(realpath $(find . -name iterate.ijm |grep fsdb.sdg))"), "\n","");
