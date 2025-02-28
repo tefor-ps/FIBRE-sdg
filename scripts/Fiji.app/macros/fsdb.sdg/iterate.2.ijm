@@ -12,26 +12,15 @@ print(param);
 //========
 // LOGGING
 //========
-	LOGDIR=getDirectory("imagej")+"logs/";
-	print(LOGDIR);
-	File.makeDirectory(LOGDIR);
-	LOG=LOGDIR+"/iterate.log";
-	if (File.exists(LOG) == 0){
-		f=File.open(LOG);
-		File.close(f);
-	}
-	getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
-	print(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
-	print(IJ.pad(substring(year,2,4),2), IJ.pad(month,2), IJ.pad(dayOfMonth,2), IJ.pad(hour,2), IJ.pad(minute,2), IJ.pad(second,2), IJ.pad(msec,2));
-	y=toString(IJ.pad(substring(year,2,4),2));
-	m=toString(IJ.pad(month,2));
-	d=toString(IJ.pad(dayOfMonth,2));
-	h=toString(IJ.pad(hour,2));
-	M=toString(IJ.pad(minute,2)); 
-	s=toString(IJ.pad(second,2));
-	ts=y+m+d+"-"+h+M+s;
-	print(ts);
-	File.append(ts, LOG);
+LOGDIR=getDirectory("imagej")+"logs/";
+print(LOGDIR);
+File.makeDirectory(LOGDIR);
+LOG=LOGDIR+"/iterate.log";
+if (File.exists(LOG) == 0){
+	f=File.open(LOG);
+	File.close(f);
+}
+makeTS();
 
 //========
 // TOGGLES
@@ -47,7 +36,6 @@ if (param == "") {
 		if (File.exists(param)) {
 			fp=param;
 			mode="file";
-			File.append("working on "+fp, LOG);
 		} else {
 			mode="error";
 		}
@@ -65,6 +53,9 @@ if (getInfo("os.name") == "Linux" ) {
 print(MACRODIR);
 File.append(MACRODIR, LOG);
 
+//========
+// 'MAIN'
+//========
 count = 1;
 print("\\Clear");
 selectWindow("Log");
@@ -79,6 +70,10 @@ if (mode == "file"){
 print("done.");
 run("Quit");
 
+// ====================
+// FUNCTION DEFINITIONS
+// ====================
+
 function listFiles(dir) {
 	File.append("listFiles", LOG);
 // --> https://imagej.net/ij/macros/ListFilesRecursively.txt
@@ -87,10 +82,8 @@ function listFiles(dir) {
 		if (endsWith(list[i], "/")) {
 			listFiles(""+dir+list[i]);
 		} else {
-// TODO: flexibilize: allow other file types e.g., by repeating and modifying the following if-statement			
 			if (endsWith(list[i], "merge.nd2")) {
 				print((count++)+": "+dir+list[i]);
-				File.append("working on "+dir+list[i], LOG);
 				process(dir+list[i]);
 			}
 		}
@@ -99,6 +92,7 @@ function listFiles(dir) {
 
 function process(path){
 	File.append("process", LOG);
+	makeTS();
 	run("Bio-Formats Windowless Importer", "open="+path);
 	File.append("loaded "+getTitle(), LOG);
 // Bioformats sometimes assigns the complete path as title. This causes trouble downstream. 
@@ -120,4 +114,20 @@ function process(path){
 	run("Collect Garbage");
 	run("Collect Garbage");
 	run("Collect Garbage");
+	makeTS();
+}
+
+function makeTS(){
+	getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+	//print(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+	//print(IJ.pad(substring(year,2,4),2), IJ.pad(month,2), IJ.pad(dayOfMonth,2), IJ.pad(hour,2), IJ.pad(minute,2), IJ.pad(second,2), IJ.pad(msec,2));
+	y=toString(IJ.pad(substring(year,2,4),2));
+	m=toString(IJ.pad(month,2));
+	d=toString(IJ.pad(dayOfMonth,2));
+	h=toString(IJ.pad(hour,2));
+	M=toString(IJ.pad(minute,2)); 
+	s=toString(IJ.pad(second,2));
+	ts=y+m+d+"-"+h+M+s;
+	print(ts);
+	File.append(ts, LOG);
 }
