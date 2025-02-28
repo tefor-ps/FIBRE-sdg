@@ -4,6 +4,9 @@
  *  - the absolute path to a directory containing image files
 */
 
+// DO NOT USE! something is wrong with makeTS
+//TODO: find out what is wrong with makeTS
+
 param=getArgument();
 mode="";
 print(param);
