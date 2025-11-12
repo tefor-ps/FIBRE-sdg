@@ -1,4 +1,4 @@
-//version=0.11
+//version=251112
 print("\\Clear");
 close("\\Others");
 
@@ -20,6 +20,7 @@ findHead_tog=1;
 padding=20;
 wt=100;
 
+param=getArgument
 
 //========
 // LOGGING
@@ -69,6 +70,13 @@ if ( imgc == 3 ){
 	unmix23();
 	IID=getImageID();
 }
+
+if (param == "short"){
+	suff="raw";
+	makeMIP(suff);
+	print("Done.");
+	run("Quit");
+}
 // crop to specimen (and rotate head to the left)
 cropToSpecimen(IID, "crp", findHead_tog);
 // reset IID to cropped image
@@ -77,13 +85,10 @@ selectImage(IID);
 // crop to head (left 1/3 of specimen)
 cropToHead(IID);
 getDimensions(w, h, c, s, f);
-//pad=10;
-//run("Canvas Size...", "width="+w+pad+" height="+h+pad+" position=Center zero");
-//saveAndExport("head");
 
 // clean-up
 //run("Close All");
-run("Collect Garbage");
+//run("Collect Garbage");
 
 makeTS();
 
@@ -151,7 +156,7 @@ function makeMIP( suff){
 	if (debuglevel > 2) { waitForUser; }
 	iid=getImageID();
 	run("Z Project...", "projection=[Max Intensity]");
-	//correctColors();
+	correctColors();
 	setVoxelSize(vwidth, vheight, vdepth, vunit);
 	run("Scale Bar...", "width=100 height=100 font=20 horizontal bold");
 	saveAs("PNG", outdir+"/"+bn+"."+suff+".mip.png");
