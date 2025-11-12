@@ -1,0 +1,17 @@
+# ==secondary data generation==
+SDGDIR $FSDBDIR/fsdb-secDataGeneration/scripts/sdg
+
+### == TOGGLES ==
+
+
+# ==MACROS==
+SDGMACROSDIR $SDGDIR/scripts/Fiji.app/macros/fsdb.sdg
+
+#CROP_SDGMAC 
+
+
+
+# ==cron settings==
+# VARNAME_CRON m h dom mon dow user command
+SDG_CRON 45 */6 * * * root ${SECDATAGEN}
+
