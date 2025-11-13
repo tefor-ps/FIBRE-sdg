@@ -1,11 +1,11 @@
 # ==secondary data generation==
-SDGDIR $FSDBDIR/fsdb-secDataGeneration/scripts/sdg
+SDGDIR $FSDBDIR/fsdb-secDataGeneration/scripts
 
 ### == TOGGLES ==
 
 
 # ==MACROS==
-SDGMACROSDIR $SDGDIR/scripts/Fiji.app/macros/fsdb.sdg
+SDGMACROSDIR $SDGDIR/../macros/fsdb.sdg
 
 #CROP_SDGMAC 
 
