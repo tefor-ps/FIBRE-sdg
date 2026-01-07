@@ -1,64 +1,15 @@
-//fsdb-rev-date: 251217
-
-if (getArgument() == "") {
-	title=getTitle();
-	ft=replace(title, ".*\\.", "\\.");
-	//print(suff);
-	bn=replace(title, ft, "");
-	//print(bn);
-	dir=getDirectory("image");
-	outPath=dir+"/"+bn+"-secData/"+bn+"-crp.tif";
-} else {
-	outPath=getArgument();
-}
-
-dbgName="crop";
-dbg=1; // debugging; active, when greater than 0
-interactive=0;
-ic=0;
-if (dbg > 0) { print("::"+dbgName); }
-fs=File.separator;
-
-myPath=getInfo("macro.filepath");
-print(myPath);
-pArr=split(myPath, "/");
-for (i = 0; i < lengthOf(pArr); i++) {
-	if (matches(pArr[i], "fsdb..") == 1) {
-		FSDBVERSION=pArr[i];
-		FSDBDIR=replace(myPath, FSDBVERSION+"/.*", FSDBVERSION);
-	} else {
-		FSDBDIR=myPath+"/../../../";
-	}
-}
-FSDBDIR=replace(myPath, FSDBVERSION+"/.*", FSDBVERSION);
-print(FSDBDIR);
-
-if (dbg > 0) { print(dbgName+": A"); }
-COREMACROS=FSDBDIR+"/fsdb-core/macros/fsdb.core/";
-INITLOG_FMAC=COREMACROS+"/fsdb.core.initLOG.ijm";
-DEBUG_FMAC=COREMACROS+"/fsdb.core.logger.ijm";
-SDGMACROS=FSDBDIR+"/fsdb-sdg/macros/fsdb.sdg/";
-SAVENRRD_MAC=SDGMACROS+"/fsdb.sdg.saveNrrd.ijm";
-SAVETIF_MAC=SDGMACROS+"/fsdb.sdg.saveTif.ijm";
-SAVEPNG_MAC=SDGMACROS+"/fsdb.sdg.savePng.ijm";
-MIP_MAC=SDGMACROS+"/fsdb.sdg.mip.ijm";
-
-// prepare parameters for logging
-LOG=runMacro(INITLOG_FMAC, dbgName);
-
-function debugger(str, LOG){
-	if (dbg > 0){
-		str=dbgName+dbg+": "+str+" "+LOG;
-		runMacro(DEBUG_FMAC, str);
-		dbg++;
-	}
-}
-
-debugger("start", LOG);
-//==== fsdb-end ====
-
-//print("\\Clear");
+//version=251112
+print("\\Clear");
 close("\\Others");
+
+// This macro can accept multiple paramters:
+// - preformatted:
+// SU=[suffix] <-- macro-specific suffix, which is appended to the basename of the specimen; default: -crp
+// FT=[file type] <-- file type used to store results; default: .tif
+// RTH=[bool] <-- toggle for pre-alignment of the head; default: 1 (on)
+// FH=[bool] <-- toggle for head-detection; default: 1 (on)
+// - unformatted
+// 'short' <-- if the keyword 'short' is passed to this macro, it only produces maximum intensity projection of the raw images and quits.
 
 // the debuglevel adjusts the level of verbosity and interactivity
 // 0 : very little output
@@ -71,13 +22,13 @@ debuglevel=0;
 //========
 // DEFAULT VALUES OF PARAMETERS & TOGGLES
 //========
-rotateToHorizontal_tog=1;
-if (matches(outPath, ".*head.*")) {
-	findHead_tog=1;
-} else {
-	findHead_tog=0;
-}
-debugger(findHead_tog, LOG);
+p=getArgument();
+var suff="-crp"; //SU
+var ft=".tif"; //FT
+var param="";
+rotateToHorizontal_tog=1; //RTH
+findHead_tog=1; //FH
+digestParams(p);
 
 //========
 // LOCALLY CONFIGURED PARAMETERS
@@ -85,6 +36,17 @@ debugger(findHead_tog, LOG);
 padding=20;
 wt=100;
 
+//========
+// LOGGING
+//========
+LOGDIR=getDirectory("imagej")+"logs/";
+print("LOGDIR:",LOGDIR);
+File.makeDirectory(LOGDIR);
+LOG=LOGDIR+"/crop.log";
+if (File.exists(LOG) == 0){
+	f=File.open(LOG);
+	File.close(f);
+}
 makeTS();
 
 //========
@@ -123,6 +85,12 @@ if ( imgc == 3 ){
 	IID=getImageID();
 }
 
+if (param == "short"){
+	suff="raw";
+	makeMIP(suff);
+	print("Done.");
+	run("Quit");
+}
 // crop to specimen (and rotate head to the left)
 cropToSpecimen(IID, "crp", findHead_tog);
 // reset IID to cropped image
@@ -132,16 +100,42 @@ selectImage(IID);
 cropToHead(IID);
 getDimensions(w, h, c, s, f);
 
+// clean-up
+//run("Close All");
+//run("Collect Garbage");
+
 makeTS();
 
-debugger(outPath, LOG);
-debugger("end", LOG);
-//run("Quit");
+print("Done.");
+run("Quit");
 
 
 // ====================
 // FUNCTION DEFINITIONS
 // ====================
+
+function digestParams(p){
+	if (matches(p, ".*"+delim+".*")) {
+		print("multiple parameters detected");
+		ps=split(p, delim);
+		//Array.print(ps); //for debugging
+		for (i = 0; i < lengthOf(ps); i++) {
+			//print(i, ps[i]); //for debugging
+			if(matches(ps[i], ".*=.*")){
+				tmp=split(ps[i], "=");
+				//Array.print(tmp); //for debugging
+				if(matches(tmp[0], "SU")){ suff=tmp[1]; }
+				if(matches(tmp[0], "FT")){ ft=tmp[1]; }
+				if(matches(tmp[0], "RTH")){ rotateToHorizontal_tog=tmp[1]; }
+				if(matches(tmp[0], "FH")){ findHead_tog=tmp[1]; }
+			} else {
+				param=ps[i];
+			}
+		}
+	} else {
+		param=p;
+	}
+}
 
 function makeTS(){
 	getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
@@ -154,15 +148,13 @@ function makeTS(){
 	M=toString(IJ.pad(minute,2)); 
 	s=toString(IJ.pad(second,2));
 	ts=y+m+d+"-"+h+M+s;
-	//print(ts);
-	//if (debuglevel > 1) { File.append(ts, LOG); }
-	if (debuglevel > 1) { debugger(ts, LOG); }
+	print(ts);
+	if (debuglevel > 1) { File.append(ts, LOG); }
 }
 
 function unmix23(){
 	if (debuglevel > 0) { print("unmix23", getTitle()); }
-	//if (debuglevel > 1) { File.append("unmix23", LOG); }
-	if (debuglevel > 1) { debugger("unmix23", LOG); }
+	if (debuglevel > 1) { File.append("unmix23", LOG); }
 	if (debuglevel > 2) { waitForUser; }
 	run("Select None");
 	rename("UNMIX");
@@ -177,8 +169,7 @@ function unmix23(){
 
 function deinterleave(){
 	if (debuglevel > 0) { print("deinterleave", getTitle()); }
-	//if (debuglevel > 1) { File.append("deinterleave", LOG); }
-	if (debuglevel > 1) { debugger("deinterleave", LOG); }
+	if (debuglevel > 1) { File.append("deinterleave", LOG); }
 	if (debuglevel > 2) { waitForUser; }
 	getDimensions(w, h, c, s, f);
 	if (imgc != c){
@@ -195,46 +186,45 @@ function deinterleave(){
 		}
 	}
 }
-	
-	function makeMIP( suff){
-		if (debuglevel > 0) { print("makeMIP", suff, getTitle()); }
-		//if (debuglevel > 1) { File.append("makeMIP "+suff, LOG); }
-		if (debuglevel > 1) { debugger("makeMIP "+suff, LOG); }
-		if (debuglevel > 2) { waitForUser; }
-		iid=getImageID();
-		run("Z Project...", "projection=[Max Intensity]");
-		correctColors();
-		setVoxelSize(vwidth, vheight, vdepth, vunit);
-		run("Scale Bar...", "width=100 height=100 font=20 horizontal bold");
-		saveAs("PNG", outdir+"/"+bn+"."+suff+".mip.png");
-		print(outdir+"/"+bn+"."+suff+".mip.png");
-		close("*mip.png");
-		selectImage(iid);
-	}
 
-	function correctColors(){
-		if (debuglevel > 0) { print("correctColors", getTitle()); }
-		if (debuglevel > 1) { debugger("correctColors", LOG); }
-		if (debuglevel > 2) { waitForUser; }
-		//colArr=newArray("Grey", "Red", "Green", "Blue", "Cyan", "Magenta", "Yellow");
-		colArr=newArray("Grey", "Magenta", "Green", "Blue", "Cyan", "Red", "Yellow");
-		if (imgc == 1){
-			run(colArr[0]);
-		} else {
-			Stack.setSlice(imgs/2);
-			for (col = 1; col <= imgc; col++) {
-				Stack.setChannel(col);
-				run(colArr[col]);
-				resetMinAndMax;
-				resetMinAndMax;
-			}
+function makeMIP( suff){
+	if (debuglevel > 0) { print("makeMIP", suff, getTitle()); }
+	if (debuglevel > 1) { File.append("makeMIP "+suff, LOG); }
+	if (debuglevel > 2) { waitForUser; }
+	iid=getImageID();
+	run("Z Project...", "projection=[Max Intensity]");
+	correctColors();
+	setVoxelSize(vwidth, vheight, vdepth, vunit);
+	run("Scale Bar...", "width=100 height=100 font=20 horizontal bold");
+	saveAs("PNG", outdir+"/"+bn+"."+suff+".mip.png");
+	print(outdir+"/"+bn+"."+suff+".mip.png");
+	close("*mip.png");
+	selectImage(iid);
+}
+
+function correctColors(){
+	if (debuglevel > 0) { print("correctColors", getTitle()); }
+	if (debuglevel > 1) { File.append("correctColors", LOG); }
+	if (debuglevel > 2) { waitForUser; }
+	//colArr=newArray("Grey", "Red", "Green", "Blue", "Cyan", "Magenta", "Yellow");
+	colArr=newArray("Grey", "Magenta", "Green", "Blue", "Cyan", "Red", "Yellow");
+	if (imgc == 1){
+		run(colArr[0]);
+	} else {
+		Stack.setSlice(imgs/2);
+		for (col = 1; col <= imgc; col++) {
+			Stack.setChannel(col);
+			run(colArr[col]);
+			resetMinAndMax;
+			resetMinAndMax;
 		}
 	}
+}
 
 function cropToSpecimen(iid, suff, fh){
 	selectImage(iid);
 	if (debuglevel > 0) { print("cropToSpecimen", iid, suff, fh, getTitle()); }
-	if (debuglevel > 1) { debugger("cropToSpecimen "+iid+" "+suff+" "+fh , LOG); }
+	if (debuglevel > 1) { File.append("cropToSpecimen "+iid+" "+suff+" "+fh , LOG); }
 	if (debuglevel > 2) { waitForUser; }
 // find and crop to biggest piece of specimen in the open image
 	cropToROI(iid);
@@ -267,68 +257,50 @@ function cropToSpecimen(iid, suff, fh){
 	}
 // sometimes channels become interleaved during processing; repair channels	
 	deinterleave();
+// apply standard LUTs
+	correctColors();
 // save result
 	saveAndExport(suff);
 }
 
-	function saveAndExportOld(suff){
-		if (debuglevel > 0) { print("saveAndExport", suff, getTitle()); }
-		//if (debuglevel > 1) { File.append("saveAndExport "+suff, LOG); }
-		if (debuglevel > 1) { debugger("saveAndExport "+suff, LOG); }
-		if (debuglevel > 2) { waitForUser; }
-		iid=getImageID();
-		saveAs("Tiff", outdir+"/"+bn+"."+suff+".tif");
-		print(outdir+"/"+bn+"."+suff+".tif");
-		if (debuglevel > 1) { debugger(outdir+"/"+bn+"."+suff+".tif", LOG); }
-		makeMIP(suff);
-		//exportNrrds(suff);
-	}
-
 function saveAndExport(suff){
 	if (debuglevel > 0) { print("saveAndExport", suff, getTitle()); }
-	//if (debuglevel > 1) { File.append("saveAndExport "+suff, LOG); }
-	if (debuglevel > 1) { debugger("saveAndExport "+suff, LOG); }
+	if (debuglevel > 1) { File.append("saveAndExport "+suff, LOG); }
 	if (debuglevel > 2) { waitForUser; }
 	iid=getImageID();
-// save result	as tif
-	op=outdir+"/"+bn+"."+suff+".tif";
-	runMacro(SAVETIF_MAC, op);
-	debugger(op, LOG);
-// make maximum intensity projection ...
-	selectImage(iid);
-	runMacro(MIP_MAC, suff);
-// ... and save as png	
-	op=outdir+"/"+bn+"."+suff+".mip.png"
-	runMacro(SAVEPNG_MAC, op);
-	debugger(op, LOG);
-	selectImage(iid);
+	saveAs("Tiff", outdir+"/"+bn+"."+suff+".tif");
+	print(outdir+"/"+bn+"."+suff+".tif");
+	if (debuglevel > 1) { File.append(outdir+"/"+bn+"."+suff+".tif", LOG); }
+	makeMIP(suff);
+	exportNrrds(suff);
 }
-	function exportNrrds(suff){
-		if (debuglevel > 0) { print("exportNrrds", suff, getTitle()); }
-		if (debuglevel > 1) { debugger("exportNrrds "+suff, LOG); }
-		if (debuglevel > 2) { waitForUser; }
-		run("Duplicate...", "title=NRRD duplicate");
-		getDimensions(w, h, c, s, f);
-		iid=getImageID();
-		run("Split Channels");
-		n=nImages;
-		for (i = 1; i <= c ; i++) {
-			outfile=outdir+"/C"+i+"-"+bn+"."+suff+".nrrd";
-			if (debuglevel > 0) { 
-				print(i, iid-i, outfile);
-			} else {
-				print(outfile);
-			}
-			selectImage(iid-i);
-			run("Nrrd ... ", "nrrd="+outfile);
-			if (debuglevel > 1) { debugger(outfile, LOG); }
+
+function exportNrrds(suff){
+	if (debuglevel > 0) { print("exportNrrds", suff, getTitle()); }
+	if (debuglevel > 1) { File.append("exportNrrds "+suff, LOG); }
+	if (debuglevel > 2) { waitForUser; }
+	run("Duplicate...", "title=NRRD duplicate");
+	getDimensions(w, h, c, s, f);
+	iid=getImageID();
+	run("Split Channels");
+	n=nImages;
+	for (i = 1; i <= c ; i++) {
+		outfile=outdir+"/C"+i+"-"+bn+"."+suff+".nrrd";
+		if (debuglevel > 0) { 
+			print(i, iid-i, outfile);
+		} else {
+			print(outfile);
 		}
-		close("*nrrd");
+		selectImage(iid-i);
+		run("Nrrd ... ", "nrrd="+outfile);
+		if (debuglevel > 1) { File.append(outfile, LOG); }
 	}
+	close("*nrrd");
+}
 
 function fuseChannels(iid){
 	if (debuglevel > 0) { print("fuseChannels", iid, getTitle()); }
-	if (debuglevel > 1) { debugger("fuseChannels "+iid, LOG); }
+	if (debuglevel > 1) { File.append("fuseChannels "+iid, LOG); }
 	if (debuglevel > 2) { waitForUser; }
 	selectImage(iid);
 	run("Z Project...", "projection=[Max Intensity]");
@@ -356,7 +328,7 @@ function fuseChannels(iid){
 
 function cropToROI(iid){
 	if (debuglevel > 0) { print("cropToROI", iid, getTitle()); }
-	if (debuglevel > 1) { debugger("cropToROI "+iid, LOG); }
+	if (debuglevel > 1) { File.append("cropToROI "+iid, LOG); }
 	if (debuglevel > 2) { waitForUser; }
 // to avoid missing any signal, fuse all signals of all channels into one --> TID
 	TID=fuseChannels(iid);
@@ -395,6 +367,8 @@ function cropToROI(iid){
 	
 	if (debuglevel > 2) { waitForUser; } else { wait(wt);}
 	getDimensions(w, h, c, s, f);
+//	close("CROPTOROI*");
+//	close("FUSECHANNELS");
 
 	r=w*h;
 	if (debuglevel > 2) { print("region:", r);}
@@ -406,7 +380,7 @@ function findHead(iid){
 // of the specimen (after thresholding); the head is wider than the tail. 
 // this works only on complete (fish) specimens.
 	if (debuglevel > 0) { print("findHead", iid, getTitle()); }
-	if (debuglevel > 1) { debugger("findHead "+iid, LOG); }
+	if (debuglevel > 1) { File.append("findHead "+iid, LOG); }
 	if (debuglevel > 2) { waitForUser; }
 // define fraction of longside of image.
 	frac=5;
@@ -465,7 +439,7 @@ function cropToHead(iid){
 // select and crop to the left 1/3 of the original image
 // ( this part of the image was emperically determined to contain the head )
 	if (debuglevel > 0) { print("cropToHead", iid, getTitle()); }
-	if (debuglevel > 1) { debugger("cropToHead "+iid, LOG); }
+	if (debuglevel > 1) { File.append("cropToHead "+iid, LOG); }
 	if (debuglevel > 2) { waitForUser; }
 	selectImage(iid);
 	getDimensions(w, h, c, s, f);
@@ -492,7 +466,7 @@ function cropToHead(iid){
 function makeOutDir(indir){
 // define and create output directory
 	if (debuglevel > 0) { print("makeOutDir", getTitle()); }
-	if (debuglevel > 1) { debugger("makeOutDir", LOG); }
+	if (debuglevel > 1) { File.append("makeOutDir", LOG); }
 	if (debuglevel > 2) { waitForUser; }
 	outdir=indir+"/"+bn+"-secData";
 	if ( File.isDirectory(outdir) == 0 ){
@@ -504,7 +478,7 @@ function makeOutDir(indir){
 function getBiggestROI() { 
 // detect biggest ROI after thresholding
 	if (debuglevel > 0) { print("getBiggestROI", iid, getTitle()); }
-	if (debuglevel > 1) { debugger("getBiggestROI "+iid, LOG); }
+	if (debuglevel > 1) { File.append("getBiggestROI "+iid, LOG); }
 	if (debuglevel > 2) { waitForUser; }
 // reset ROI Manager
 	if (roiManager("size") > 0) {
@@ -546,7 +520,7 @@ function getBiggestROI() {
 function rotateToHorizontal(iid, suff){
 // align body axis (of head) to coordinate system (roughly pre-align for image registration)
 	if (debuglevel > 0) { print("rotateToHorizontal", iid, getTitle()); }
-	if (debuglevel > 1) { debugger("rotateToHorizontal "+iid, LOG); }
+	if (debuglevel > 1) { File.append("rotateToHorizontal "+iid, LOG); }
 	if (debuglevel > 2) { waitForUser; }
 	
 	suff=suff+".rot";
@@ -588,7 +562,7 @@ function rotateToHorizontal(iid, suff){
 function writeTransformationMatrix(suff){
 // write transforamtion parameters into log file  for re-use.
 	if (debuglevel > 0) { print("writeTransformationMatrix", getTitle()); }
-	if (debuglevel > 1) { debugger("writeTransformationMatrix", LOG); }
+	if (debuglevel > 1) { File.append("writeTransformationMatrix", LOG); }
 	if (debuglevel > 2) { waitForUser; }
 
 	oneline=1;
