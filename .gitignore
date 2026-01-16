@@ -5,6 +5,7 @@
 **/*#
 .cred-*
 test-*
+**/test-*
 frag-*
 *bup*
 *swp
