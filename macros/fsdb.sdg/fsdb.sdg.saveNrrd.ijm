@@ -1,4 +1,4 @@
-//fsdb-rev-date: 251215
+//fsdb-rev-date: 260115
 
 if (getArgument() == "") {
 	title=getTitle();
@@ -7,7 +7,7 @@ if (getArgument() == "") {
 	bn=replace(title, ft, "");
 	//print(bn);
 	dir=getDirectory("image");
-	outPath=dir+"/"+bn+".nrrd";
+	outPath=dir+"/"+bn+"-secData/"+bn+".nrrd";
 } else {
 	outPath=getArgument();
 }
@@ -19,24 +19,25 @@ ic=0;
 if (dbg > 0) { print("::"+dbgName); }
 fs=File.separator;
 
-myPath=getInfo("macro.filepath");
+//myPath=getInfo("macro.filepath");
+myPath=getDirectory("current");
 print(myPath);
 pArr=split(myPath, "/");
 for (i = 0; i < lengthOf(pArr); i++) {
 	if (matches(pArr[i], "fsdb..") == 1) {
 		FSDBVERSION=pArr[i];
 		FSDBDIR=replace(myPath, FSDBVERSION+"/.*", FSDBVERSION);
-} else {
+	} else {
 		FSDBDIR=myPath+"/../../../";
-}
+	}
 }
 FSDBDIR=replace(myPath, FSDBVERSION+"/.*", FSDBVERSION);
 print(FSDBDIR);
 
-if (dbg > 0) { print(dbgName+": A"); }
 COREMACROS=FSDBDIR+"/fsdb-core/macros/fsdb.core/";
 INITLOG_FMAC=COREMACROS+"/fsdb.core.initLOG.ijm";
 DEBUG_FMAC=COREMACROS+"/fsdb.core.logger.ijm";
+MAKEDIR_FMAC=COREMACROS+"/fsdb.core.makeDirRecursively.ijm";
 
 // prepare parameters for logging
 LOG=runMacro(INITLOG_FMAC, dbgName);
@@ -50,15 +51,19 @@ function debugger(str, LOG){
 }
 
 debugger("start", LOG);
-debugger(outPath, LOG);
+if (interactive > 0 ) {waitForUser(dbgName+" "+ic); ic++;}
 //==== fsdb-end ====
 
-if (interactive > 0 ) {waitForUser(dbgName+" "+ic); ic++;}
+runMacro(MAKEDIR_FMAC, outPath);
+
+if (dbg > 0) { debugger("outPath: "+outPath, LOG); }
+
 IID=getImageID();
 title=getTitle();
+debugger("title: "+title, LOG);
 // detect number of channels
 getDimensions(width, height, channels, slices, frames);
-//print(channels);
+debugger("channels: "+channels, LOG);
 
 // as the following process is destructive make a duplicate of the original data 
 run("Duplicate...", "title=DUP duplicate");
@@ -75,23 +80,24 @@ if (channels > 1) {
 	for (i = 1; i <= channels; i++) {
 		selectImage(DID-i);
 		ch=replace(getTitle(), "-DUP", "");
-		//print(ch);
-		//chOut=bp+"-"+ch+suff;
-		chOut=ch+"-"+title;
-		debugger(chOut, LOG);
+		debugger("channel "+ch, LOG);
+		chOut=bp+"-"+ch+suff;
+		//chOut=ch+"-"+title;
+		debugger("chOut:"+chOut, LOG);
 		run("Nrrd ... ", "nrrd="+chOut);
 		close();
 	}
 } else {
 	run("Nrrd ... ", "nrrd="+outPath);
 	close();
-	debugger(outPath, LOG);
 }
+debugger(outPath, LOG);
 // free memory
 run("Collect Garbage");
 run("Collect Garbage");
 run("Collect Garbage");
 
+// go back to original image
 selectImage(IID);
 
 // confirm finished status

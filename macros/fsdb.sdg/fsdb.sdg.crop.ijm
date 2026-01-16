@@ -1,15 +1,16 @@
-//fsdb-rev-date: 251217
+//fsdb-rev-date: 260114
+
+//print("\\Clear");
 
 if (getArgument() == "") {
-	title=getTitle();
+	title=getInfo("image.filename");
 	ft=replace(title, ".*\\.", "\\.");
 	//print(suff);
 	bn=replace(title, ft, "");
 	//print(bn);
-	dir=getDirectory("image");
-	outPath=dir+"/"+bn+"-secData/"+bn+"-crp.tif";
+	outSuff="-crp";
 } else {
-	outPath=getArgument();
+	outSuff=getArgument();
 }
 
 dbgName="crop";
@@ -19,8 +20,10 @@ ic=0;
 if (dbg > 0) { print("::"+dbgName); }
 fs=File.separator;
 
-myPath=getInfo("macro.filepath");
+//myPath=getInfo("macro.filepath");
+myPath=getDirectory("current");
 print(myPath);
+
 pArr=split(myPath, "/");
 for (i = 0; i < lengthOf(pArr); i++) {
 	if (matches(pArr[i], "fsdb..") == 1) {
@@ -54,10 +57,10 @@ function debugger(str, LOG){
 	}
 }
 
+//print("\\Clear");
 debugger("start", LOG);
 //==== fsdb-end ====
 
-//print("\\Clear");
 close("\\Others");
 
 // the debuglevel adjusts the level of verbosity and interactivity
@@ -69,21 +72,26 @@ close("\\Others");
 debuglevel=0;
 
 //========
-// DEFAULT VALUES OF PARAMETERS & TOGGLES
-//========
-rotateToHorizontal_tog=1;
-if (matches(outPath, ".*head.*")) {
-	findHead_tog=1;
-} else {
-	findHead_tog=0;
-}
-debugger(findHead_tog, LOG);
-
-//========
 // LOCALLY CONFIGURED PARAMETERS
 //========
 padding=20;
 wt=100;
+//========
+// DEFAULT VALUES OF PARAMETERS & TOGGLES
+//========
+if (matches(outSuff, ".*head.*") == 1) {
+	findHead_tog=1;
+	if (matches(outSuff, ".*rot.*") == 1) {
+		rotateToHorizontal_tog=1;
+	} else {
+		rotateToHorizontal_tog=0;
+	}
+} else {
+	findHead_tog=0;
+	rotateToHorizontal_tog=0;
+}
+debugger("findHead_tog: "+findHead_tog, LOG);
+debugger("rotateToHorizontal_tog: "+rotateToHorizontal_tog, LOG);
 
 makeTS();
 
@@ -91,7 +99,7 @@ makeTS();
 // 'MAIN'
 //========
 // isolate and apply filename of/to open image, extract basename and original suffix
-title=split(getTitle(), "/");
+title=split(getInfo("image.filename"), "/");
 title=title[lengthOf(title)-1];
 rename(title);
 tmp=split(title, ".");
@@ -124,17 +132,39 @@ if ( imgc == 3 ){
 }
 
 // crop to specimen (and rotate head to the left)
-cropToSpecimen(IID, "crp", findHead_tog);
+//cropToSpecimen(IID, "crp", findHead_tog);
+cropToSpecimen(IID, "crp", 1);
+// crop along z-axis
+run("Reslice [/]...", "output=1.000 start=Top avoid");
+DID=getImageID();
+cropToSpecimen(DID, "crp", 0);
+run("Reslice [/]...", "output=1.000 start=Top avoid");
+D2D=getImageID();
+selectImage(DID);
+close();
+selectImage(IID);
+close();
+selectImage(D2D);
+IID=getImageID();
+
+// save result as tif
+	saveAsTif(".crp");
+// save as nrrd	
+	//exportNrrds(outSuff);
 // reset IID to cropped image
 IID=getImageID();
 selectImage(IID);
+
 // crop to head (left 1/3 of specimen)
-cropToHead(IID);
+if (findHead_tog == 1 ) {
+	cropToHead(IID);
+}
+
 getDimensions(w, h, c, s, f);
 
 makeTS();
 
-debugger(outPath, LOG);
+//debugger(outPath, LOG);
 debugger("end", LOG);
 //run("Quit");
 
@@ -161,7 +191,6 @@ function makeTS(){
 
 function unmix23(){
 	if (debuglevel > 0) { print("unmix23", getTitle()); }
-	//if (debuglevel > 1) { File.append("unmix23", LOG); }
 	if (debuglevel > 1) { debugger("unmix23", LOG); }
 	if (debuglevel > 2) { waitForUser; }
 	run("Select None");
@@ -177,7 +206,6 @@ function unmix23(){
 
 function deinterleave(){
 	if (debuglevel > 0) { print("deinterleave", getTitle()); }
-	//if (debuglevel > 1) { File.append("deinterleave", LOG); }
 	if (debuglevel > 1) { debugger("deinterleave", LOG); }
 	if (debuglevel > 2) { waitForUser; }
 	getDimensions(w, h, c, s, f);
@@ -195,41 +223,6 @@ function deinterleave(){
 		}
 	}
 }
-	
-	function makeMIP( suff){
-		if (debuglevel > 0) { print("makeMIP", suff, getTitle()); }
-		//if (debuglevel > 1) { File.append("makeMIP "+suff, LOG); }
-		if (debuglevel > 1) { debugger("makeMIP "+suff, LOG); }
-		if (debuglevel > 2) { waitForUser; }
-		iid=getImageID();
-		run("Z Project...", "projection=[Max Intensity]");
-		correctColors();
-		setVoxelSize(vwidth, vheight, vdepth, vunit);
-		run("Scale Bar...", "width=100 height=100 font=20 horizontal bold");
-		saveAs("PNG", outdir+"/"+bn+"."+suff+".mip.png");
-		print(outdir+"/"+bn+"."+suff+".mip.png");
-		close("*mip.png");
-		selectImage(iid);
-	}
-
-	function correctColors(){
-		if (debuglevel > 0) { print("correctColors", getTitle()); }
-		if (debuglevel > 1) { debugger("correctColors", LOG); }
-		if (debuglevel > 2) { waitForUser; }
-		//colArr=newArray("Grey", "Red", "Green", "Blue", "Cyan", "Magenta", "Yellow");
-		colArr=newArray("Grey", "Magenta", "Green", "Blue", "Cyan", "Red", "Yellow");
-		if (imgc == 1){
-			run(colArr[0]);
-		} else {
-			Stack.setSlice(imgs/2);
-			for (col = 1; col <= imgc; col++) {
-				Stack.setChannel(col);
-				run(colArr[col]);
-				resetMinAndMax;
-				resetMinAndMax;
-			}
-		}
-	}
 
 function cropToSpecimen(iid, suff, fh){
 	selectImage(iid);
@@ -267,88 +260,75 @@ function cropToSpecimen(iid, suff, fh){
 	}
 // sometimes channels become interleaved during processing; repair channels	
 	deinterleave();
-// save result
-	saveAndExport(suff);
 }
 
-	function saveAndExportOld(suff){
-		if (debuglevel > 0) { print("saveAndExport", suff, getTitle()); }
-		//if (debuglevel > 1) { File.append("saveAndExport "+suff, LOG); }
-		if (debuglevel > 1) { debugger("saveAndExport "+suff, LOG); }
-		if (debuglevel > 2) { waitForUser; }
-		iid=getImageID();
-		saveAs("Tiff", outdir+"/"+bn+"."+suff+".tif");
-		print(outdir+"/"+bn+"."+suff+".tif");
-		if (debuglevel > 1) { debugger(outdir+"/"+bn+"."+suff+".tif", LOG); }
-		makeMIP(suff);
-		//exportNrrds(suff);
-	}
-
-function saveAndExport(suff){
-	if (debuglevel > 0) { print("saveAndExport", suff, getTitle()); }
-	//if (debuglevel > 1) { File.append("saveAndExport "+suff, LOG); }
-	if (debuglevel > 1) { debugger("saveAndExport "+suff, LOG); }
+function saveAsTif(suff){
+	if (debuglevel > 0) { print("saveAsTif", suff, getTitle()); }
+	if (debuglevel > 1) { debugger("saveAsTif "+suff, LOG); }
 	if (debuglevel > 2) { waitForUser; }
 	iid=getImageID();
-// save result	as tif
-	op=outdir+"/"+bn+"."+suff+".tif";
+// save result as tif
+	op=outdir+"/"+bn+suff+".tif";
 	runMacro(SAVETIF_MAC, op);
 	debugger(op, LOG);
-// make maximum intensity projection ...
+	makeMIP(suff);
 	selectImage(iid);
-	runMacro(MIP_MAC, suff);
-// ... and save as png	
-	op=outdir+"/"+bn+"."+suff+".mip.png"
+}
+
+function makeMIP(suff){
+	if (debuglevel > 0) { print("makeMIP", suff, getTitle()); }
+	if (debuglevel > 1) { debugger("makeMIP "+suff, LOG); }
+	if (debuglevel > 2) { waitForUser; }
+	iid=getImageID();
+	// make maximum intensity projection and save as png
+	runMacro(MIP_MAC, suff+".mip");
+	op=outdir+"/"+bn+suff+".mip.png";
 	runMacro(SAVEPNG_MAC, op);
 	debugger(op, LOG);
 	selectImage(iid);
 }
-	function exportNrrds(suff){
-		if (debuglevel > 0) { print("exportNrrds", suff, getTitle()); }
-		if (debuglevel > 1) { debugger("exportNrrds "+suff, LOG); }
-		if (debuglevel > 2) { waitForUser; }
-		run("Duplicate...", "title=NRRD duplicate");
-		getDimensions(w, h, c, s, f);
-		iid=getImageID();
-		run("Split Channels");
-		n=nImages;
-		for (i = 1; i <= c ; i++) {
-			outfile=outdir+"/C"+i+"-"+bn+"."+suff+".nrrd";
-			if (debuglevel > 0) { 
-				print(i, iid-i, outfile);
-			} else {
-				print(outfile);
-			}
-			selectImage(iid-i);
-			run("Nrrd ... ", "nrrd="+outfile);
-			if (debuglevel > 1) { debugger(outfile, LOG); }
-		}
-		close("*nrrd");
-	}
+function exportNrrds(suff){
+	if (debuglevel > 0) { print("exportNrrds", suff, getTitle()); }
+	if (debuglevel > 1) { debugger("exportNrrds "+suff, LOG); }
+	if (debuglevel > 2) { waitForUser; }
+	iid=getImageID();
+	op=outdir+"/"+bn+suff+".nrrd";
+	runMacro(SAVENRRD_MAC, op);
+	selectImage(iid);
+	debugger(op, LOG);
+}
 
 function fuseChannels(iid){
 	if (debuglevel > 0) { print("fuseChannels", iid, getTitle()); }
 	if (debuglevel > 1) { debugger("fuseChannels "+iid, LOG); }
 	if (debuglevel > 2) { waitForUser; }
 	selectImage(iid);
+	if (debuglevel > 0) {print("fuseChannels", getImageID(), getTitle()); }
 	run("Z Project...", "projection=[Max Intensity]");
 	tid=getImageID();
 	selectImage(tid);
+	if (debuglevel > 0) {print("fuseChannels", getImageID(), getTitle());}
 	wait(wt);
 	getDimensions(w, h, c, s, f);
+	if (debuglevel > 0) {print(w, h, c, s, f);}
+	//waitForUser;
 	if ((imgc > 1 )) {
 		rename("FUSECHANNELS");
+	if (debuglevel > 0) {print("fuseChannels", getImageID(), getTitle());}
 		run("Split Channels");
 		imageCalculator("Add create", "C1-FUSECHANNELS","C2-FUSECHANNELS");
 		selectImage("Result of C1-FUSECHANNELS");
+	if (debuglevel > 0) {print("fuseChannels", getImageID(), getTitle());}
 		rename("FUSECHANNELS");
 		for (c = 2; c <= imgc; c++) {
 			imageCalculator("Add", "FUSECHANNELS","C"+c+"-FUSECHANNELS");
+			rename("FUSECHANNELS");
 		}
 		run("Grays");
 		close("C*");
 	} else {
 		run("Duplicate...", "title=FUSECHANNELS duplicate"); 
+	if (debuglevel > 0) {print("fuseChannels", getImageID(), getTitle());}
 	}
 	TID=getImageID();
 	return TID;
@@ -478,20 +458,24 @@ function cropToHead(iid){
 	iid=getImageID();
 	close("\\Others");
 // save result
-	suffix="head";
-	saveAndExport(suffix);
+	suffix="-head";
+// save result as tif	
+	saveAsTif(suffix);
+// save as nrrd	
+	exportNrrds(suffix);
 // align body-axis with image coordinate system (as much as possible)
 	if (rotateToHorizontal_tog == 1) {
 		suffix=rotateToHorizontal(iid, suffix);
 		iid=getImageID();
 		if (debuglevel > 0) { print("suffix", suffix); }
 		cropToSpecimen(iid, suffix, 0);
+		saveAsTif(suffix);
 	}
 }
 
 function makeOutDir(indir){
 // define and create output directory
-	if (debuglevel > 0) { print("makeOutDir", getTitle()); }
+	if (debuglevel > 0) { print("makeOutDir", indir); }
 	if (debuglevel > 1) { debugger("makeOutDir", LOG); }
 	if (debuglevel > 2) { waitForUser; }
 	outdir=indir+"/"+bn+"-secData";
@@ -550,6 +534,8 @@ function rotateToHorizontal(iid, suff){
 	if (debuglevel > 2) { waitForUser; }
 	
 	suff=suff+".rot";
+selectImage(iid);
+	if (debuglevel > 0) {print("rotateToHorizontal", getImageID(), getTitle());}
 // fuse all signals of all channels into one --> TID
 	TID=fuseChannels(iid);
 	selectImage(TID);
@@ -576,12 +562,15 @@ function rotateToHorizontal(iid, suff){
 // close temporary image
 	selectImage(TID);
 	close();
-// app-ly rotation to original image
+// apply rotation to original image
 	selectImage(iid);
+	if (debuglevel > 0) {print("rotateToHorizontal", getImageID(), getTitle());}
 	run("Select None");
 	run("Rotate... ", "angle="+rotation+" grid=1 interpolation=Bicubic  fill enlarge");
 // log rotation as transformation matrix - for reproduction of result.
 	writeTransformationMatrix(suff);
+	selectImage(iid);
+print("rotateToHorizontal", getImageID(), getTitle());
 	return suff;
 }
 
@@ -608,8 +597,12 @@ function writeTransformationMatrix(suff){
 		print(C+" "+D+" 0");
 		print("0 0 1");
 	}
-
 	selectWindow("Log");
-	saveAs("Text", outdir+"/"+bn+"."+suff+".txt");
-	print(outdir+"/"+bn+"."+suff+".txt");
+	op=outdir+"/"+bn+"."+suff+".txt";
+	if (File.exists(op) == 1){
+		File.append(A+" "+B+" 0 "+C+" "+D+" 0 0 0 1", op);
+	} else {
+		saveAs("Text", op);
+	}
+	print(op);
 }

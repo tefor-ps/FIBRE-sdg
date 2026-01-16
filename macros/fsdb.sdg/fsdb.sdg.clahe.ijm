@@ -1,4 +1,21 @@
-//fsdb-rev-date: 240430
+//fsdb-rev-date: 260109
+
+if (getArgument() == "") {
+	outSuff=".cl";
+} else {
+	outSuff=getArgument();
+}
+title=getTitle();
+if(indexOf(title, ".") == -1) {
+	ft="";
+	bn=title;
+} else {
+	ft=replace(title, ".*\\.", "\\.");
+	//print(suff);
+	bn=replace(title, ft, "");
+	//print(bn);
+}
+
 dbgName="clahe";
 dbg=1; // debugging; active, when greater than 0
 interactive=0;
@@ -6,54 +23,26 @@ ic=0;
 if (dbg > 0) { print("::"+dbgName); }
 fs=File.separator;
 
-test_tog=call("ij.Prefs.get", "fsdb.core.tog.test", 0);
-test_tog=1;
-call("ij.Prefs.set", "fsdb.core.tog.test", test_tog);
-if (dbg > 0) {print(dbgName+" test_tog:", test_tog); }
-
-FIJIDIR=getInfo("user.dir");
-FIJIDIR=replace(FIJIDIR, fs, "/");
-
-if (test_tog == 1) {
-	if (dbg > 0) { print(dbgName+": A"); }
-//	if (getInfo("os.name") == "Linux"){
-//		FIJIDIR="/home/teforadmin/tps/gitlab/fsdb23/scripts/Fiji.app/";
-//		//fn=replace(fn, "//wsl.localhost/Ubuntu-22.04", "");
-//	} else {
-//		FIJIDIR="C:/Users/teforadmin/tps/gitlab/fsdb23/scripts/Fiji.app/";
-//	}	
-// import necessary variables into fiji
-	MACROSDIR=FIJIDIR+"/macros";
-	COREMACROS=MACROSDIR+"/fsdb.core";
-	SECDATAMACROS=MACROSDIR+"/fsdb.sdg";
-	INITLOG_FMAC=COREMACROS+"/fsdb.core.initLOG.ijm";
-	DEBUG_FMAC=COREMACROS+"/fsdb.core.logger.ijm";
-	CLAHE_IPSUFF=".cl";
-	CLAHE_IPTOG=1;
-	CLAHE_IPMAC="/CACHE/AJ-110-DR/fsdb23/scripts/Fiji.app/macros/fsdb.sdg/fsdb.sdg.clahe.ijm";
-	DESP_IPTOG=0; // possible values: 0=off;1=despeckle pre clahe;2=despeckle pre and post clahe 
-} else {
-	if (dbg > 0) { print("B"); }
-// get all varables defined in the .scripts.config of the fsdb
-//	if (getInfo("os.name") == "Linux"){
-//		FIJIDIR=getDirectory("imagej");
-//	} else {
-//		FIJIDIR=File.getDirectory(getInfo("ij.executable"));
-//	}
-	// import fsdb-variables into fiji
-//	INITFSDB_FMAC=call("ij.Prefs.get", "fsdb.core.fmac.initfsdb", COREMACROS+"/fsdb.core.initFsdb.ijm"); 
-	INITFSDB_FMAC=call("ij.Prefs.get", "fsdb.core.fmac.initfsdb", FIJIDIR+"/macros/fsdb.core/fsdb.core.initFsdb.ijm"); 
-	runMacro(INITFSDB_FMAC);
-	MACROSDIR=call("ij.Prefs.get", "fsdb.getVar.static.macrosdir", FIJIDIR+"/macros");
-	COREMACROS=call("ij.Prefs.get", "fsdb.core.dir.coremacros", MACROSDIR+"/fsdb.core");
-	SECDATAMACROS=call("ij.Prefs.get", "fsdb.core.dir.secdatamacros", MACROSDIR+"/fsdb.sdg");
-	INITLOG_FMAC=call("ij.Prefs.get", "fsdb.core.fmac.initlog", COREMACROS+"/fsdb.core.initLOG.ijm");
-	DEBUG_FMAC=call("ij.Prefs.get", "fsdb.core.fmac.debug", COREMACROS+"/fsdb.core.logger.ijm");
-	CLAHE_IPSUFF=call("ij.Prefs.get", "fsdb.sdg.ipsuff.clahe", ".cl");
-	CLAHE_IPTOG=call("ij.Prefs.get", "fsdb.sdg.iptog.clahe", 0);
-	CLAHE_IPMAC=call("ij.Prefs.get", "fsdb.sdg.mac.clahe", SECDATAMACROS+"/fsdb.sdg.clahe.ijm");
-	DESP_IPTOG=call("ij.Prefs.get", "fsdb.sdg.iptog.desp", 0);
+//myPath=getInfo("macro.filepath");
+myPath=getDirectory("current");
+print(myPath);
+pArr=split(myPath, "/");
+for (i = 0; i < lengthOf(pArr); i++) {
+	if (matches(pArr[i], "fsdb..") == 1) {
+		FSDBVERSION=pArr[i];
+		FSDBDIR=replace(myPath, FSDBVERSION+"/.*", FSDBVERSION);
+	} else {
+		FSDBDIR=myPath+"/../../../";
+	}
 }
+FSDBDIR=replace(myPath, FSDBVERSION+"/.*", FSDBVERSION);
+print(FSDBDIR);
+
+if (dbg > 0) { print(dbgName+": A"); }
+COREMACROS=FSDBDIR+"/fsdb-core/macros/fsdb.core/";
+INITLOG_FMAC=COREMACROS+"/fsdb.core.initLOG.ijm";
+DEBUG_FMAC=COREMACROS+"/fsdb.core.logger.ijm";
+DESPtog=0;
 
 // prepare parameters for logging
 LOG=runMacro(INITLOG_FMAC, dbgName);
@@ -74,41 +63,48 @@ if (interactive > 0 ) {waitForUser(dbgName+" "+ic); ic++;}
 IID=getImageID();
 selectImage(IID);
 
-debugger("toggle: "+CLAHE_IPTOG, LOG);
-debugger("despeckle: "+DESP_IPTOG, LOG);
-
-title=getTitle();
 if (interactive > 1 ){
 	waitForUser(dbgName+" title: "+title);
 }	
 debugger(title, LOG);
 
-if (CLAHE_IPTOG == 1) {
-	ThreeDclahe();
-// append clahe specific appendix	
-	if(indexOf(title, CLAHE_IPSUFF) == -1) {
-		rename(title+CLAHE_IPSUFF);
-		debugger(title+CLAHE_IPSUFF, LOG);
+//remove background speckles before CLAHE
+if(DESPtog == 1){
+	if (slices > 1){
+		run("Despeckle", "stack");
+	} else {
+		run("Despeckle");
 	}
+	outSuff="d"+outSuff;
 }
-debugger("end", LOG);
 
+ThreeDclahe();
+
+//remove background speckles after CLAHE
+if(DESPtog == 2){
+	if (slices > 1){
+		run("Despeckle", "stack");
+	} else {
+		run("Despeckle");
+	}
+	outSuff=outSuff+"d";
+}
+// append application-specific suffix
+if(indexOf(title, outSuff) == -1) {
+	newName=bn+outSuff;
+	debugger(newName, LOG);
+	rename(newName);
+}
+
+debugger("end", LOG);
 
 function ThreeDclahe(){
 	File.append(dbgName+": start", LOG);
-		
+	
 	getDimensions(width, height, channels, slices, frames);
 	run("Duplicate...", "title=CLAHE duplicate");
-	
+// accelerate procession by batchMode	
 	setBatchMode(1);
-//remove background speckles before CLAHE
-	if(DESP_IPTOG > 0 && DESP_IPTOG < 3){
-		if (slices > 1){
-			run("Despeckle", "stack");
-		} else {
-			run("Despeckle");
-		}
-	}
 // turn RGB images into three-channel-images	
 	if (bitDepth() == 24) {
 		run("Make Composite");
@@ -116,18 +112,11 @@ function ThreeDclahe(){
 // run CLAHE on each channel of each slice	
 	for (slice=1; slice<=slices; slice++){
 		Stack.setSlice(slice);
-	}
-	for (channel=1; channel <= channels; channel++){
-		Stack.setChannel(channel);
+		for (channel=1; channel <= channels; channel++){
+			Stack.setChannel(channel);
+			resetMinAndMax;
+		}
 		run("Enhance Local Contrast (CLAHE)", "blocksize=127 histogram=256 maximum=3 mask=*None* fast_(less_accurate) process_as_composite");
 	}
+	setBatchMode(0);
 }
-//remove background speckles after CLAHE
-if(DESP_IPTOG > 1){
-	if (slices > 1){
-		run("Despeckle", "stack");
-	} else {
-		run("Despeckle");
-	}
-}
-setBatchMode(0);

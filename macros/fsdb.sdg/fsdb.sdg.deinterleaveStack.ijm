@@ -1,9 +1,9 @@
+//fsdb-rev-date: 241211
 /*
 This macro expects one parameter:
 - the original number of channels (origNumChannels)
 
 */
-//fsdb-rev-date: 241211
 dbgName="deinterleaveStack";
 dbg=0; // debugging; active, when greater than 0
 interactive=0;

@@ -1,6 +1,20 @@
-//fsdb-rev-date: 251215
+//fsdb-rev-date: 260109
 
-outSuff=getArgument();
+if (getArgument() == "") {
+	outSuff=".aip";
+} else {
+	outSuff=getArgument();
+}
+	title=getTitle();
+if(indexOf(title, ".") == -1) {
+	ft="";
+	bn=title;
+} else {
+	ft=replace(title, ".*\\.", "\\.");
+	//print(suff);
+	bn=replace(title, ft, "");
+	//print(bn);
+}
 
 dbgName="aipGen";
 dbg=1; // debugging; active, when greater than 0
@@ -9,7 +23,8 @@ ic=0;
 if (dbg > 0) { print("::"+dbgName); }
 fs=File.separator;
 
-myPath=getInfo("macro.filepath");
+//myPath=getInfo("macro.filepath");
+myPath=getDirectory("current");
 print(myPath);
 pArr=split(myPath, "/");
 for (i = 0; i < lengthOf(pArr); i++) {
@@ -68,7 +83,9 @@ if ( slices > 1 ) {
 }
 // append application-specific suffix
 if(indexOf(title, outSuff) == -1) {
-	newName=title+outSuff;
+	newName=bn+outSuff;
 	debugger(newName, LOG);
 	rename(newName);
 }
+
+debugger("end", LOG);
