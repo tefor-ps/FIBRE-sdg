@@ -68,7 +68,7 @@ debugger("channels: "+channels, LOG);
 // as the following process is destructive make a duplicate of the original data 
 run("Duplicate...", "title=DUP duplicate");
 DID=getImageID();
-//print("DID:", DID);
+print("DID:", DID);
 if (channels > 1) {
 // split outPath as preparation for the inserion of the channel number
 	bp=replace(outPath, "\\..*", "");
@@ -76,9 +76,14 @@ if (channels > 1) {
 	print("bp:", bp,"\nsuff:", suff);
 // split duplicate into single channel images	
 	run("Split Channels");
+	//run("Tile");
+	wait(100);
 // save each channel as separate nrrd
 	for (i = 1; i <= channels; i++) {
 		selectImage(DID-i);
+		wait(1000);
+		selectImage(DID-i);
+		print(getImageID(), ":", getTitle());
 		ch=replace(getTitle(), "-DUP", "");
 		debugger("channel "+ch, LOG);
 		chOut=bp+"-"+ch+suff;
