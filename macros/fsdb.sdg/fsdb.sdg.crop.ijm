@@ -598,7 +598,7 @@ function writeTransformationMatrix(suff){
 		print("0 0 1");
 	}
 	selectWindow("Log");
-	op=outdir+"/"+bn+"."+suff+".txt";
+	op=outdir+"/"+bn+suff+".txt";
 	if (File.exists(op) == 1){
 		File.append(A+" "+B+" 0 "+C+" "+D+" 0 0 0 1", op);
 	} else {
