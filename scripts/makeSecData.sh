@@ -59,3 +59,5 @@ dbg $status
 if [[ $status -gt 0 ]]; then
 	sudo bash $FIJIONSERVER $CALLER
 fi
+
+#TODO: run janitor
