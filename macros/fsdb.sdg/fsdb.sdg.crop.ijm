@@ -80,10 +80,25 @@ wt=100;
 // DEFAULT VALUES OF PARAMETERS & TOGGLES
 //========
 if (matches(outSuff, ".*head.*") == 1) {
-	findHead_tog=1;
-	if (matches(outSuff, ".*rot.*") == 1) {
-		rotateToHorizontal_tog=1;
+	// apply 'crop-to-head' only to images with more than one tile (width != height)
+	getDimensions(width, height, channels, slices, frames);
+	if (width != height){
+		if (width-height > 0){
+			diff=width-height;
+		} else {
+			diff=height-width;
+		}
+		print("merge:");
+		findHead_tog=1;
+		// rotate only when suffix demands, cropped heads only
+		if (matches(outSuff, ".*rot.*") == 1) {
+			rotateToHorizontal_tog=1;
+		} else {
+			rotateToHorizontal_tog=0;
+		}
 	} else {
+		print("tile");
+		findHead_tog=0;
 		rotateToHorizontal_tog=0;
 	}
 } else {
