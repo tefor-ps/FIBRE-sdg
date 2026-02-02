@@ -33,7 +33,6 @@ print(param);
 	print(ts);
 	File.append(ts, LOG);
 
-
 //========
 // TOGGLES
 //========

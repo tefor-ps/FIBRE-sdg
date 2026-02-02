@@ -5,6 +5,8 @@
 **/*#
 .cred-*
 test-*
+**/test-*
+*tester*
 frag-*
 *bup*
 *swp
@@ -24,3 +26,4 @@ gitPush.sh
 **/ants-reg/*
 **/tools/*
 **/*.tsv
+**/*caller*

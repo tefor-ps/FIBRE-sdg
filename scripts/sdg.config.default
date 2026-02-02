@@ -1,0 +1,17 @@
+# ==secondary data generation==
+SDGDIR $FSDBDIR/fsdb-secDataGeneration/scripts
+
+### == TOGGLES ==
+
+
+# ==MACROS==
+SDGMACROSDIR $SDGDIR/../macros/fsdb.sdg
+
+#CROP_SDGMAC 
+
+
+
+# ==cron settings==
+# VARNAME_CRON m h dom mon dow user command
+SDG_CRON 45 */6 * * * root ${SECDATAGEN}
+

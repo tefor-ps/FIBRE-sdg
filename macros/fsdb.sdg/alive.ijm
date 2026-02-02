@@ -20,6 +20,8 @@ s=toString(IJ.pad(second,2));
 ts=y+m+d+"-"+h+M+s;
 print(ts);
 
+DUMMY="/home/teforadmin/tps/sandbox/230628DCa_3074e_5dpf_TCF-462-DR_1024_Nh_merge_lr.tif";
+
 File.append("alive "+ts, LOG);
 print("alive");
 print(getDirectory("home"));
@@ -28,9 +30,24 @@ if ( IMG != "") {
     //run("Bio-Formats Importer", "open=/DATA/tps/storage/imports/Fabrice/Bille5_Water_1-51_ZDrive-secData/Bille5_Water_1-51_ZDrive.nd2");
     //run("Bio-Formats Importer", "open=/mnt/c/Users/teforadmin/sandbox/Bille5_Water_1-51_ZDrive.nd2");  
     run("Bio-Formats Importer", "open="+IMG); 
-    File.append(getTitle(), LOG);
+    File.append("1 "+getTitle(), LOG);
+	File.append("1 "+getImageID(), LOG);
     File.append("still alive", LOG);
+
+	runMacro("/home/teforadmin/tps/gitlab/fsdb25/fsdb-sdg/macros/fsdb.sdg/alive.ijm");
+	File.append("still alive 3", LOG);
+} else {
+	run("Close All");
+	print("\\Clear");
+	run("Bio-Formats Importer", "open="+DUMMY+" autoscale color_mode=Default rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");
+	IID=getImageID();
+	File.append("2 "+getTitle(), LOG);
+	File.append("2 "+getImageID(), LOG);
+    File.append("still alive 2", LOG);
 }
+
+
 print("EXIT");
-//eval("script", "System.exit(0);");
-run("Quit");
+File.append("EXIT", LOG);
+
+//run("Quit");
