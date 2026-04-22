@@ -1,12 +1,5 @@
 #!/bin/bash
 
-# set all global variables
-source getVar
-intro $(basename $0)
-
-# define local debug level (overwrites global one). Comment out to follow global debug level.
-debug=3
-
 #IMAGE DETECTION
 if [[ -z $1 ]]; then
 	error "ERROR: provide raw image to this script. Exiting."
@@ -16,15 +9,27 @@ else
 	dbg $img
 fi
 
+# set all global variables
+source getVar
+intro $(basename $0)
+
+# define local debug level (overwrites global one). Comment out to follow global debug level.
+debug=3
+
 imgDir=$(dirname $img)
 dbg2 $imgDir
 suff=$(basename $img |awk -F "." '{print $NF}')
 dbg2 $suff
 bn=$(basename $img |sed "s@.${suff}\$@@")
 dbg2 $bn
+lock=$imgDir/$bn.lock
+date>$lock
 outDir=${imgDir}/${bn}${SECDATA_EXT}
 dbg2 $outDir
 mkdir -p $outDir
+
+# ensure lock file is removed when not needed anymore
+trap 'echo "Cleaning up"; rm -f "$lock"; exit' INT TERM EXIT
 
 # write image metadata to file
 meta=$(sudo bash $MAKEMETA $img |tail -1)
