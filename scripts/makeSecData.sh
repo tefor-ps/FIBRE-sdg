@@ -6,7 +6,7 @@ if [[ -z $1 ]]; then
 	exit
 else
 	img=$(realpath $1)
-	dbg $img
+	echo "Image: $(basename $img)"
 fi
 
 # get location of this script
@@ -47,30 +47,33 @@ dbg2 $outDir
 mkdir -p $outDir
 
 # ensure lock file is removed when not needed anymore
-trap 'echo "Cleaning up"; rm -f "$lock"; exit' INT TERM EXIT
+trap 'echo "Cleaning up"; rm -f "$lock"' INT TERM EXIT
 
 # write image metadata to file
 meta=$(sudo bash $MAKEMETA $img |tail -1)
 #get number of channels from metadata
 chNum=$(grep SizeC $meta |tail -1 |awk '{print $NF}')
 
+# create CALLEr macro
 sudo bash $MAKECALLER $img
 
 # check if the output images already exist
 status=0
 for i in $(grep save $CALLER |cut -d "," -f 2 |tr -d "\"\);"); do
+	dbg2 $i
 	# nrrds are split into individual single-channel-images, which is not reflected in the file name provided in CALLER. 
 	if [[ $(echo $i |grep -c -e ".nrrd") -gt 0 ]]; then
-		#dbg "looking for nrrd"
+		dbg2 "looking for nrrd"
 		ibn=$(echo $i |cut -d "." -f 1)
-		#dbg "ibn: $ibn"
+		dbg2 "ibn: $ibn"
 		isuff=$(echo $i |sed "s@$ibn@@")
-		#dbg "isuff: $isuff"
+		dbg2 "isuff: $isuff"
 		for cn in $(seq 1 $chNum); do
 			dbg ${ibn}-C${cn}${isuff}
 			ls -l $(echo ${ibn}-C${cn}${isuff})
 			status=$(($status+$?))
 		done
+#read ans
 	else
 		dbg2 "$i"
 		ls -l $i;
@@ -78,7 +81,7 @@ for i in $(grep save $CALLER |cut -d "," -f 2 |tr -d "\"\);"); do
 	fi
 done
 dbg $status
-
+# run CALLER macro in fiji (on server)
 if [[ $status -gt 0 ]]; then
 	sudo bash $FIJIONSERVER $CALLER
 fi
