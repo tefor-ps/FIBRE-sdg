@@ -6,7 +6,7 @@ if [[ -z $1 ]]; then
 	exit
 else
 	img=$(realpath $1)
-	echo "Image: $(basename $img)"
+	printf  "\tImage: $(basename $img)\n"
 fi
 
 # get location of this script
@@ -76,7 +76,7 @@ for i in $(grep save $CALLER |cut -d "," -f 2 |tr -d "\"\);"); do
 #read ans
 	else
 		dbg2 "$i"
-		ls -l $i;
+		ls -l $i
 		status=$(($status+$?))
 	fi
 done
