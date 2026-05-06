@@ -26,4 +26,4 @@ gitPush.sh
 **/ants-reg/*
 **/tools/*
 **/*.tsv
-**/*caller*
+**/*caller*.ijm
