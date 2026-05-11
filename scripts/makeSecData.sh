@@ -1,9 +1,40 @@
 #!/bin/bash
 
+# ensure correct reporting of failures within pipes
+set -o pipefail
+
+## =====================
+## DEFINITION OF HELP FUNCTION
+## =====================
+
+function usage() {
+<<readme
+INFO
+CALL
+INPUT
+OUTPUT
+readme
+		printf "\nUsage: sudo bash $0 [-h] file
+		" 1>&2
+	exit 1
+}
+
+while getopts "h" opt; do
+	printf "Option -$opt was triggered. " >&2 
+	case $opt in
+		h)
+			usage
+			echo
+			;;
+	esac
+done
+shift $((OPTIND-1))
+			
+
 #IMAGE DETECTION
-if [[ -z $1 ]]; then
-	error "ERROR: provide raw image to this script. Exiting."
-	exit
+if [[ ! -f "$1" ]]; then
+	echo "ERROR: $1 is not a file."
+	usage
 else
 	img=$(realpath $1)
 	printf  "\tImage: $(basename $img)\n"
