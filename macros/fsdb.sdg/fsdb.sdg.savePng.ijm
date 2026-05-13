@@ -59,6 +59,14 @@ runMacro(MAKEDIR_FMAC, outPath);
 if (dbg > 0) { debugger("outPath: "+outPath, LOG); }
 
 if (File.exists(outPath) == 0) {
+	getDimensions(width, height, channels, slices, frames);
+	if (channels > 1) {
+		run("Make Composite");
+		Stack.setDisplayMode("composite");
+		run("RGB Color");
+	} else {
+		run("8-bit");
+	}
 	saveAs("PNG", outPath);
 	close();
 	debugger(outPath, LOG);
