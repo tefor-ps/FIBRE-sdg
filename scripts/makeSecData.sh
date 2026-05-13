@@ -1,12 +1,53 @@
 #!/bin/bash
 
+# ensure correct reporting of failures within pipes
+set -o pipefail
+
+## =====================
+## DEFINITION OF HELP FUNCTION
+## =====================
+
+function usage() {
+<<readme
+INFO
+CALL
+INPUT
+OUTPUT
+readme
+		printf "\nUsage: sudo bash $0 [-h] file
+		" 1>&2
+	exit 1
+}
+
+while getopts "h" opt; do
+	printf "Option -$opt was triggered. " >&2 
+	case $opt in
+		h)
+			usage
+			echo
+			;;
+	esac
+done
+shift $((OPTIND-1))
+			
+
 #IMAGE DETECTION
-if [[ -z $1 ]]; then
-	error "ERROR: provide raw image to this script. Exiting."
-	exit
+if [[ ! -f "$1" ]]; then
+	echo "ERROR: $1 is not a file."
+	usage
 else
 	img=$(realpath $1)
 	printf  "\tImage: $(basename $img)\n"
+	imgDir=$(dirname $img)
+	suff=$(basename $img |awk -F "." '{print $NF}')
+	bn=$(basename $img |sed "s@.${suff}\$@@")
+	lock=$imgDir/$bn.lock
+	if [[ -f $lock ]]; then
+		echo "ERROR: $1 locked. Skipping."
+		exit
+	else
+		date>$lock
+	fi
 fi
 
 # get location of this script
@@ -34,14 +75,7 @@ intro $(basename $0)
 # define local debug level (overwrites global one). Comment out to follow global debug level.
 debug=3
 
-imgDir=$(dirname $img)
-dbg2 $imgDir
-suff=$(basename $img |awk -F "." '{print $NF}')
-dbg2 $suff
-bn=$(basename $img |sed "s@.${suff}\$@@")
-dbg2 $bn
-lock=$imgDir/$bn.lock
-date>$lock
+
 outDir=${imgDir}/${bn}${SECDATA_EXT}
 dbg2 $outDir
 mkdir -p $outDir
@@ -54,7 +88,7 @@ meta=$(sudo bash $MAKEMETA $img |tail -1)
 #get number of channels from metadata
 chNum=$(grep SizeC $meta |tail -1 |awk '{print $NF}')
 
-# create CALLEr macro
+# create CALLER macro
 sudo bash $MAKECALLER $img
 
 # check if the output images already exist

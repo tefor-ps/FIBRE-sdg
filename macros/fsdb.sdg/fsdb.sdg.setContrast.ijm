@@ -72,17 +72,23 @@ if(channels > 1 || bitDepth() == 24 ){
 		run("Make Composite");
 	}
 }
-
+// set contrast do bit-depth specific minimum and maximum
 bd=bitDepth();
 for (i = 1; i <= channels; i++) {
 	Stack.setChannel(i);
 	if (bd == 16){
 		debugger("setCon 16bit", LOG);
-		setMinAndMax(0, 4095); 
+		setMinAndMax(0, 4095);
+		setMinAndMax(0, 4095);
+		setMinAndMax(0, 4095);
+		wait(2);
 	}
 	if (bd == 8){	
 		debugger("setCon 8bit", LOG);
 		setMinAndMax(0, 255);
+		setMinAndMax(0, 255);
+		setMinAndMax(0, 255);
+		wait(2);
 	}
 }
 // append application-specific suffix

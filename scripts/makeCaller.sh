@@ -25,7 +25,7 @@ fi
 intro $(basename $0)
 
 # define local debug level (overwrites global one). Comment out to follow global debug level.
-debug=0
+#debug=3
 
 #IMAGE DETECTION
 if [[ -z $1 ]]; then
@@ -99,7 +99,7 @@ if [[ $(grep GLOBAL_IMTOG $CONFIG |awk -F "|" '{print $3}') -eq 1 ]]; then
 					tmpsuff=$(grep $task $CONFIG |grep -v -e "#" |grep SUFF |awk -F "|" '{print $3}'|tr -d " ")
 					# apply suffixes with leading hyphen mutually exclusive
 					if [[ $tmpsuff =~ ^- ]]; then
-						imsuff=${tmpsuff}
+						imsuff=${ppsuff}${tmpsuff}
 					else
 						imsuff=${imsuff}${tmpsuff}
 					fi
@@ -112,6 +112,8 @@ if [[ $(grep GLOBAL_IMTOG $CONFIG |awk -F "|" '{print $3}') -eq 1 ]]; then
 		done
 		suff=${imsuff}
 	done
+#dbg $imsuff
+#exit
 	tmp=$(printf "${imcall}" |tail -4) 
 	call="${call}\n${tmp}\n"
 	dbg3 "imsuff: $imsuff"
