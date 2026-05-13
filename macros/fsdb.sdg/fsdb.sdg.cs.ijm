@@ -76,12 +76,12 @@ if (channels > 1){
 
 // extract center slice 
 getDimensions(width, height, channels, slices, frames);
+cs=floor(slices/2);
+Stack.setSlice(cs);
 if ( channels > 1){
-	cs=floor(slices/2);
-	Stack.setSlice(cs);
 	run("Duplicate...", "title=CS duplicate slices="+cs);
 } else {
-	run("Duplicate...", "duplicate");
+	run("Duplicate...", "title=CS");
 }
 // append application-specific suffix
 if(indexOf(title, outSuff) == -1) {

@@ -75,12 +75,15 @@ if(channels > 1 || bitDepth() == 24 ){
 // enhance contrast for each channel (10% of oversaturated voxels permitted)
 run("Z Project...", "projection=[Max Intensity]");
 MID=getImageID();
+if (interactive > 0 ) {waitForUser(dbgName+" "+ic); ic++;}
 for (i = 1; i <= channels; i++) {
 	selectImage(MID);
 	Stack.setChannel(i);
 	resetMinAndMax;
 	run("Enhance Contrast", "saturated=0.1");
 	getMinAndMax(min, max);
+	string=toString(min)+" "+toString(max);
+	debugger(string, LOG);
 	selectImage(IID);
 	Stack.setChannel(i);
 	setMinAndMax(min, max);

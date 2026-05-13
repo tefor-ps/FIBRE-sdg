@@ -1,4 +1,4 @@
-//fsdb-rev-date: 260109
+//fsdb-rev-date: 260512
 
 if (getArgument() == "") {
 	outSuff="-cc";
@@ -79,7 +79,7 @@ function correctColors() {
 	print(width, height, channels, slices, frames);
 	
 	if ( channels == 1 ){
-		debugger("A", LOG);
+		debugger("one channel --> grays", LOG);
 		run("Grays");
 	} else {
 // make sure that all channels are visible
@@ -87,7 +87,7 @@ function correctColors() {
 		Stack.setDisplayMode("composite");
 	}
 	if ( channels == 2 ){
-		debugger("B", LOG);
+		debugger("two channels --> gagenta/green", LOG);
 		luts=newArray("Magenta", "Green", "Grey");
 		for (i=0;i<channels;i++){
 			Stack.setChannel(i+1);
@@ -95,7 +95,7 @@ function correctColors() {
 		}
 	}
 	if ( channels > 2 ){
-		debugger("C", LOG);		
+		debugger("more than two channels --> RGBGMYC", LOG);		
 //		luts=newArray("Magenta", "Yellow", "Cyan", "Red", "Green", "Blue", "Grays");
 		luts=newArray("Red", "Green", "Blue", "Grays", "Magenta", "Yellow", "Cyan");
 		for (i=0;i<channels;i++){

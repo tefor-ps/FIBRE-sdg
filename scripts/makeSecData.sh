@@ -38,6 +38,16 @@ if [[ ! -f "$1" ]]; then
 else
 	img=$(realpath $1)
 	printf  "\tImage: $(basename $img)\n"
+	imgDir=$(dirname $img)
+	suff=$(basename $img |awk -F "." '{print $NF}')
+	bn=$(basename $img |sed "s@.${suff}\$@@")
+	lock=$imgDir/$bn.lock
+	if [[ -f $lock ]]; then
+		echo "ERROR: $1 locked. Skipping."
+		exit
+	else
+		date>$lock
+	fi
 fi
 
 # get location of this script
@@ -65,14 +75,7 @@ intro $(basename $0)
 # define local debug level (overwrites global one). Comment out to follow global debug level.
 debug=3
 
-imgDir=$(dirname $img)
-dbg2 $imgDir
-suff=$(basename $img |awk -F "." '{print $NF}')
-dbg2 $suff
-bn=$(basename $img |sed "s@.${suff}\$@@")
-dbg2 $bn
-lock=$imgDir/$bn.lock
-date>$lock
+
 outDir=${imgDir}/${bn}${SECDATA_EXT}
 dbg2 $outDir
 mkdir -p $outDir
@@ -85,7 +88,7 @@ meta=$(sudo bash $MAKEMETA $img |tail -1)
 #get number of channels from metadata
 chNum=$(grep SizeC $meta |tail -1 |awk '{print $NF}')
 
-# create CALLEr macro
+# create CALLER macro
 sudo bash $MAKECALLER $img
 
 # check if the output images already exist

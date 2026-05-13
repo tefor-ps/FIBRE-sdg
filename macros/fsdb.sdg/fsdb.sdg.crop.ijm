@@ -2,22 +2,25 @@
 
 //print("\\Clear");
 
+defaultSuff="-crp";
 if (getArgument() == "") {
-	title=getInfo("image.filename");
-	ft=replace(title, ".*\\.", "\\.");
-	//print(suff);
-	bn=replace(title, ft, "");
-	//print(bn);
-	outSuff="-crp";
+	outSuff=defaultSuff;
+	suff_tog=1;
 } else {
 	outSuff=getArgument();
+	suff_tog=0;
 }
 
 dbgName="crop";
-dbg=1; // debugging; active, when greater than 0
-interactive=0;
-ic=0;
-if (dbg > 0) { print("::"+dbgName); }
+
+// the debuglevel adjusts the level of verbosity and interactivity
+// 0 : very little output
+// 1 : more output
+// 2 : logging enabled
+// 3 : interactive, stops at the beginning of each function
+debuglevel=0;
+dbg=1; 
+if (debuglevel > 0) { print("::"+dbgName); }
 fs=File.separator;
 
 //myPath=getInfo("macro.filepath");
@@ -36,7 +39,7 @@ for (i = 0; i < lengthOf(pArr); i++) {
 FSDBDIR=replace(myPath, FSDBVERSION+"/.*", FSDBVERSION);
 print(FSDBDIR);
 
-if (dbg > 0) { print(dbgName+": A"); }
+if (debuglevel > 0) { print(dbgName+": A"); }
 COREMACROS=FSDBDIR+"/fsdb-core/macros/fsdb.core/";
 INITLOG_FMAC=COREMACROS+"/fsdb.core.initLOG.ijm";
 DEBUG_FMAC=COREMACROS+"/fsdb.core.logger.ijm";
@@ -50,11 +53,9 @@ MIP_MAC=SDGMACROS+"/fsdb.sdg.mip.ijm";
 LOG=runMacro(INITLOG_FMAC, dbgName);
 
 function debugger(str, LOG){
-	if (dbg > 0){
-		str=dbgName+dbg+": "+str+" "+LOG;
-		runMacro(DEBUG_FMAC, str);
-		dbg++;
-	}
+	str=dbgName+dbg+": "+str+" "+LOG;
+	runMacro(DEBUG_FMAC, str);
+	dbg++;
 }
 
 //print("\\Clear");
@@ -62,14 +63,7 @@ debugger("start", LOG);
 //==== fsdb-end ====
 
 close("\\Others");
-
-// the debuglevel adjusts the level of verbosity and interactivity
-// 0 : very little output
-// 1 : more output
-// 2 : logging enabled
-// 3 : interactive, stops at the beginning of each function
-// 4 : interactive with a lot of output - for debugging
-debuglevel=0;
+if (debuglevel > 2) { waitForUser; }
 
 //========
 // LOCALLY CONFIGURED PARAMETERS
@@ -88,16 +82,20 @@ if (matches(outSuff, ".*head.*") == 1) {
 		} else {
 			diff=height-width;
 		}
-		print("merge:");
+		if (debuglevel > 0) { print("merge");}
+		if (debuglevel > 1) { debugger("merge --> crop to head", LOG);}
 		findHead_tog=1;
 		// rotate only when suffix demands, cropped heads only
 		if (matches(outSuff, ".*rot.*") == 1) {
 			rotateToHorizontal_tog=1;
+			if (debuglevel > 0) { print("rotate to head");}
+			if (debuglevel > 1) { debugger("rotate to head", LOG);}
 		} else {
 			rotateToHorizontal_tog=0;
 		}
 	} else {
-		print("tile");
+		if (debuglevel > 0) { print("tile/stack");}
+		if (debuglevel > 1) { debugger("tile or stack", LOG);}
 		findHead_tog=0;
 		rotateToHorizontal_tog=0;
 	}
@@ -114,9 +112,13 @@ makeTS();
 // 'MAIN'
 //========
 // isolate and apply filename of/to open image, extract basename and original suffix
-title=split(getInfo("image.filename"), "/");
+if (suff_tog == 1 ){
+	title=split(replace(getTitle()," .*",""), "/");
+} else {
+	title=split(getInfo("image.filename"), "/");
+}
 title=title[lengthOf(title)-1];
-rename(title);
+//rename(title);
 tmp=split(title, ".");
 origft=tmp[lengthOf(tmp)-1];
 bn=replace(title, "."+origft, "");
@@ -146,6 +148,9 @@ if ( imgc == 3 ){
 	IID=getImageID();
 }
 
+if (debuglevel > 2) { waitForUser; }
+
+
 // crop to specimen (and rotate head to the left)
 //cropToSpecimen(IID, "crp", findHead_tog);
 cropToSpecimen(IID, "crp", 1);
@@ -163,7 +168,8 @@ selectImage(D2D);
 IID=getImageID();
 
 // save result as tif
-	saveAsTif(".crp");
+crpSuff=replace(replace(outSuff, "-head", defaultSuff), ".rot", "");
+saveAsTif(crpSuff);
 // save as nrrd	
 	//exportNrrds(outSuff);
 // reset IID to cropped image
@@ -176,6 +182,8 @@ if (findHead_tog == 1 ) {
 }
 
 getDimensions(w, h, c, s, f);
+roiManager("reset");
+close("ROI Manager");
 
 makeTS();
 
@@ -286,7 +294,7 @@ function saveAsTif(suff){
 	op=outdir+"/"+bn+suff+".tif";
 	runMacro(SAVETIF_MAC, op);
 	debugger(op, LOG);
-	makeMIP(suff);
+	//makeMIP(suff);
 	selectImage(iid);
 }
 
@@ -472,12 +480,15 @@ function cropToHead(iid){
 // clean-up
 	iid=getImageID();
 	close("\\Others");
-// save result
-	suffix="-head";
-// save result as tif	
+// save (intermediate) result
+	//suffix="-head";
+	if (matches(outSuff, ".*.rot.*") == 1){
+		suffix=replace(outSuff, ".rot", "");
+	}
+// save result as tif
 	saveAsTif(suffix);
 // save as nrrd	
-	exportNrrds(suffix);
+	//exportNrrds(suffix);
 // align body-axis with image coordinate system (as much as possible)
 	if (rotateToHorizontal_tog == 1) {
 		suffix=rotateToHorizontal(iid, suffix);
@@ -493,7 +504,10 @@ function makeOutDir(indir){
 	if (debuglevel > 0) { print("makeOutDir", indir); }
 	if (debuglevel > 1) { debugger("makeOutDir", LOG); }
 	if (debuglevel > 2) { waitForUser; }
-	outdir=indir+"/"+bn+"-secData";
+	tmpTit=getInfo("image.filename");
+	tmpFt=replace(tmpTit, ".*\\.", "\\.");
+	tmpBn=replace(tmpTit, tmpFt, "");
+	outdir=indir+"/"+tmpBn+"-secData";
 	if ( File.isDirectory(outdir) == 0 ){
 		File.makeDirectory(outdir);
 	}
@@ -549,7 +563,7 @@ function rotateToHorizontal(iid, suff){
 	if (debuglevel > 2) { waitForUser; }
 	
 	suff=suff+".rot";
-selectImage(iid);
+	selectImage(iid);
 	if (debuglevel > 0) {print("rotateToHorizontal", getImageID(), getTitle());}
 // fuse all signals of all channels into one --> TID
 	TID=fuseChannels(iid);
@@ -585,7 +599,7 @@ selectImage(iid);
 // log rotation as transformation matrix - for reproduction of result.
 	writeTransformationMatrix(suff);
 	selectImage(iid);
-print("rotateToHorizontal", getImageID(), getTitle());
+	print("rotateToHorizontal", getImageID(), getTitle());
 	return suff;
 }
 

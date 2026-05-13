@@ -59,7 +59,7 @@ if (interactive > 0 ) {waitForUser(dbgName+" "+ic); ic++;}
 //==== fsdb-end ====
 
 getDimensions(width, height, channels, slices, frames);
-// set color 
+// set label color 
 if (bitDepth == 16){
 	setColor(floor(4095/4*3));
 } else {
