@@ -73,11 +73,11 @@ fi
 intro $(basename $0)
 
 # define local debug level (overwrites global one). Comment out to follow global debug level.
-debug=3
+#debug=3
 
 
 outDir=${imgDir}/${bn}${SECDATA_EXT}
-dbg2 $outDir
+dbg2 $outDir |tee $LOG
 mkdir -p $outDir
 
 # ensure lock file is removed when not needed anymore
@@ -104,7 +104,7 @@ for i in $(grep save $CALLER |cut -d "," -f 2 |tr -d "\"\);"); do
 		dbg2 "isuff: $isuff"
 		for cn in $(seq 1 $chNum); do
 			dbg ${ibn}-C${cn}${isuff}
-			ls -l $(echo ${ibn}-C${cn}${isuff})
+			ls -l $(echo ${ibn}-C${cn}${isuff}) 2>/dev/null
 			status=$(($status+$?))
 		done
 #read ans
