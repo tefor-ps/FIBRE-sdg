@@ -87,63 +87,64 @@ fi
 
 # create temporary directory for download and unpacking.
 TMPDIR=$ADMINDIR/tmp-$(basename $0 .sh)
-mkdir -pv "$TMPDIR"
+mkdir -p "$TMPDIR"
 cd "$TMPDIR" || exit
 
-printf "\n ... installing FIJI for "
+dbg "\n ... installing FIJI for "
 # download OS-specific Fiji-version
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
 	# Linux
 	if [[ $(uname -r |grep -c "[mM]icrosoft") -gt 0 ]]; then
-		echo "WSL"
+		dbg "WSL"
 	else
-		echo "Linux"
+		dbg "Linux"
 	fi
 	FIJI=fiji-latest-linux64-jdk.zip
 	MD5=${FIJI}.md5
 elif [[ "$OSTYPE" == "darwin"* ]]; then
 	# Mac OSX
-	echo "MacOSX"
+	dbg "MacOSX"
 	FIJI=fiji-latest-macos64-jdk.zip
 	MD5=${FIJI}.md5
 elif [[ "$OSTYPE" == "cygwin" ]]; then
 	# POSIX compatibility layer and Linux environment emulation for Windows
-	echo "cygwin"
+	dbg "cygwin"
 	FIJI=fiji-latest-win64-jdk.zip
 	MD5=${FIJI}.md5
 elif [[ "$OSTYPE" == "msys" ]]; then
 	# Lightweight shell and GNU utilities compiled for Windows (part of MinGW)
-	echo "Windows; e.g., Git Bash, msysGit, Mingw32"
+	dbg "Windows; e.g., Git Bash, msysGit, Mingw32"
 	FIJI=fiji-latest-win64-jdk.zip
 	MD5=${FIJI}.md5
 elif [[ "$OSTYPE" == "freebsd"* ]]; then
 	# FreeBSD
-	echo "FreeBSD"
+	dbg "FreeBSD"
 	FIJI=fiji-latest-linux64-jdk.zip
 	MD5=${FIJI}.md5
 else
 	# Unknown.
-	printf "\r\t\tUnknown OS. Exiting."
+	error "Unknown OS. Exiting."
 	uname -a
 	exit
 fi
 
-wget https://downloads.imagej.net/fiji/latest/$FIJI
-wget https://downloads.imagej.net/fiji/latest/$MD5
+wget -q https://downloads.imagej.net/fiji/latest/$FIJI
+wget -q https://downloads.imagej.net/fiji/latest/$MD5
 
 if [[ "$(md5sum $FIJI |awk '{print $1}')" != "$(cat $MD5)" ]]; then
-	echo "ERROR: md5 checksum mismatch. Exiting."
+	error "md5 checksum mismatch. Exiting."
 	exit 1
 fi
 
 ## unpack Fiji, move it to the correct location, and remove the temporary directory
-mkdir -pv "$FIJIDIR"
+mkdir -p "$FIJIDIR"
 unzip fiji*zip
-rsync -Sau Fiji/ "$FIJIDIR"
+#rsync -Sau Fiji/ "$FIJIDIR"
+rsync -a Fiji/ "$FIJIDIR"
 
 # update fiji
 cd "$FIJIDIR" || exit
-printf "\n ... updating Fiji\n"
+dbg "\n ... updating Fiji\n"
 bash fiji --update update
 
 # link fiji into PATH
