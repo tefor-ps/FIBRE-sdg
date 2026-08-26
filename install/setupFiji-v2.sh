@@ -2,15 +2,13 @@
 <<'README'
 This script installs the OS-specific version of Fiji used by the fsdb.
 
-Verbosity is controlled by the standard fsdb debug mechanism provided by
-getVar.sh / fun_colMsg.sh:
-  debug=0  almost silent; errors only
-  debug=1  concise installation progress
-  debug>=2 verbose/development output, including subprocess output
+Output is controlled by the fsdb debug level:
+  debug=0  almost silent; only errors/failures are shown
+  debug=1  concise installation progress (default)
+  debug>=2 verbose/development output, including underlying command output
 
-The local variable `debug`, when set, overrides the global `DEBUGLEVEL` exactly
-as defined by fun_colMsg.sh. This script deliberately does not implement a
-second message-filtering layer.
+A locally/environment-set `debug` takes precedence over the global fsdb
+`DEBUGLEVEL` loaded by getVar. If neither is defined, level 1 is used.
 
 If this script encounters Windows Subsystem for Linux (WSL), it installs the
 Linux version of Fiji. Fiji is linked into /usr/local/bin/fiji after install.
@@ -18,36 +16,35 @@ README
 # fsdb-rev-date: 260826
 
 ## ======
-## BOOTSTRAP
+## BOOTSTRAP FUNCTIONS
 ## ======
 
-# Needed only until getVar has been sourced. Afterwards use the standard fsdb
-# functions from fun_colMsg.sh (fail, warn, dbg, dbg2, ...).
 bootstrap_fail() {
-    printf 'ERROR: %s: %s\n' "$(basename "$0")" "$*" >&2
+    local message="$*"
+    printf '\033[31mError in %s: %s\033[0m\n' "$(basename "$0")" "$message" >&2
+    printf '\033[31mExiting.\033[0m\n' >&2
     exit 128
+}
+
+sudoer() {
+    # This installer writes to the fsdb installation and /usr/local/bin.
+    if [[ $(id -u) -ne 0 ]]; then
+        bootstrap_fail "This script needs to be run with root privileges."
+    fi
 }
 
 find_and_source_getvar() {
     local dir candidate
 
-    # Normal installed FSDB: getVar is linked into PATH.
+    # Prefer the normal installed command/symlink if available.
     if command -v getVar >/dev/null 2>&1; then
         # shellcheck disable=SC1090
         source "$(command -v getVar)"
         return
     fi
 
-    # During installation the symlink may not yet be usable. First try the
-    # deterministic manifest-era location relative to fsdb-sdg/install.
-    candidate="$(realpath -m "$thisDir/../../fsdb-core/scripts/core/getVar.sh")"
-    if [[ -f $candidate ]]; then
-        # shellcheck disable=SC1090
-        source "$candidate"
-        return
-    fi
-
-    # Compatibility fallback for older/non-standard layouts.
+    # During installation getVar may not yet be on PATH. Search upward from
+    # this script, matching the historical behaviour without printing noise.
     dir=$thisDir
     for _ in 1 2 3 4; do
         candidate=$(find "$dir" -name getVar.sh -type f -print -quit 2>/dev/null)
@@ -63,11 +60,37 @@ find_and_source_getvar() {
 }
 
 ## ======
-## EXECUTION HELPERS
+## VERBOSITY / EXECUTION HELPERS
 ## ======
 
+set_debug_level() {
+    # Local/environment debug overrides the global DEBUGLEVEL loaded by getVar.
+    debug=${debug:-${DEBUGLEVEL:-1}}
+
+    if ! [[ $debug =~ ^[0-9]+$ ]]; then
+        warn "Invalid debug level '$debug'; using debug=1."
+        debug=1
+    fi
+
+    export debug
+}
+
+status() {
+    # Level 1: only significant progress messages.
+    if (( debug >= 1 )); then
+        intro "$*"
+    fi
+}
+
+verbose() {
+    # Level 2+: development details.
+    if (( debug >= 2 )); then
+        dbg2 "$*"
+    fi
+}
+
 show_quiet_failure_log() {
-    if [[ -s ${SETUP_LOG:-} ]]; then
+    if [[ -s $SETUP_LOG ]]; then
         warn "The last 40 lines of the Fiji setup log follow:"
         tail -n 40 "$SETUP_LOG" >&2
         warn "Full setup output is available at: $SETUP_LOG"
@@ -77,16 +100,12 @@ show_quiet_failure_log() {
 run_step() {
     local description=$1
     shift
-    local rc level
+    local rc
 
-    # fun_colMsg performs the message filtering:
-    #   dbg  -> debug >= 1
-    #   dbg2 -> debug >= 2
-    dbg "$description"
-    dbg2 "Executing: $(printf '%q ' "$@")"
+    status "$description"
 
-    level=$(getLevel)
-    if (( level >= 2 )); then
+    if (( debug >= 2 )); then
+        verbose "Executing: $(printf '%q ' "$@")"
         "$@"
         rc=$?
     else
@@ -95,9 +114,7 @@ run_step() {
     fi
 
     if (( rc != 0 )); then
-        if (( level < 2 )); then
-            show_quiet_failure_log
-        fi
+        (( debug >= 2 )) || show_quiet_failure_log
         fail "$description failed (exit code $rc)."
     fi
 }
@@ -117,11 +134,11 @@ verify_fiji_download() {
     actual=$(md5sum "$FIJI" | awk '{print $1}') || return $?
     expected=$(awk '{print $1}' "$MD5") || return $?
 
-    dbg2 "Expected MD5: $expected"
-    dbg2 "Actual MD5:   $actual"
+    verbose "Expected MD5: $expected"
+    verbose "Actual MD5:   $actual"
 
     if [[ $actual != "$expected" ]]; then
-        printf 'Fiji MD5 checksum mismatch. Expected %s, got %s.\n' \
+        printf 'ERROR: Fiji MD5 checksum mismatch. Expected %s, got %s.\n' \
             "$expected" "$actual" >&2
         return 1
     fi
@@ -145,12 +162,13 @@ integrate_fiji() {
 
     ln -sf "$FIJIDIR/fiji" /usr/local/bin/fiji || return $?
 
-    # Preserve historical ownership when invoked through sudo. When run as
-    # root directly there is no invoking user, so retain current ownership.
+    # Preserve the historical ownership behaviour when invoked through sudo.
+    # If SUDO_USER is unavailable (e.g. direct root invocation), retain root
+    # ownership rather than constructing an invalid chown target.
     if [[ -n ${SUDO_USER:-} ]]; then
         chown -R "${SUDO_USER}:${SUDO_USER}" "$FIJIDIR" || return $?
     else
-        dbg2 "SUDO_USER is not set; retaining current Fiji ownership."
+        verbose "SUDO_USER is not set; retaining current Fiji ownership."
     fi
 
     chmod -R 775 "$FIJIDIR"
@@ -160,20 +178,21 @@ integrate_fiji() {
 ## MAIN
 ## ======
 
+sudoer
+
 thisDir=$(dirname "$(realpath "$0")")
-intro $(basename $0)
-
-# getVar also performs the standard FSDB root/sudo checks and sources
-# fun_colMsg.sh. From this point onward, use its messaging/debug API.
 find_and_source_getvar
+set_debug_level
 
-dbg2 "setupFiji effective debug level: $(getLevel)"
-dbg2 "setupFiji script: $thisDir/$(basename "$0")"
+verbose "setupFiji debug level: $debug"
+verbose "setupFiji script: $thisDir/$(basename "$0")"
 
 if [[ -f $FIJIDIR/fiji ]]; then
     fail "Fiji already exists at $FIJIDIR."
 fi
 
+# Determine the correct Fiji archive without emitting platform chatter at
+# debug=0. At level 1 the selected platform is included in one concise line.
 case ${OSTYPE:-} in
     linux-gnu*)
         if uname -r | grep -qi microsoft; then
@@ -205,10 +224,10 @@ case ${OSTYPE:-} in
 esac
 MD5=${FIJI}.md5
 
-dbg "Installing Fiji for $OS_LABEL to $FIJIDIR"
-dbg2 "Fiji archive: $FIJI"
+status "Installing Fiji for $OS_LABEL to $FIJIDIR"
 
-# Keep the directory/log after failure for diagnosis; remove it on success.
+# Create a working directory and keep it on failure so the quiet-mode log is
+# available for diagnosis. It is removed only after a successful installation.
 TMPDIR="$ADMINDIR/tmp-$(basename "$0" .sh)"
 mkdir -p "$TMPDIR" || fail "Could not create temporary directory: $TMPDIR"
 SETUP_LOG="$TMPDIR/setupFiji.log"
@@ -222,4 +241,4 @@ run_step "Updating Fiji..." update_fiji
 run_step "Integrating Fiji with the system..." integrate_fiji
 
 rm -rf "$TMPDIR"
-dbg "Fiji installation complete."
+status "Fiji installation complete."
