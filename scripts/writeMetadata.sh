@@ -13,7 +13,7 @@ bftools are expected in $SCRIPTSDIR/bftools
 --> https://docs.openmicroscopy.org/bio-formats/latest/users/comlinetools/index.html
 
 README
-#fsdb-rev-date: 260116
+#fsdb-rev-date: 260826
 
 # get location of this script
 thisDir=$(dirname $(realpath "$0"))
@@ -99,6 +99,22 @@ outFile=$outDir/$bn.meta.txt
 #https://docs.openmicroscopy.org/bio-formats/6.2.0/users/comlinetools/#command-line-environment
 export BF_MAX_MEM=2g
 
+# Bio-Formats' command-line wrapper invokes `java` from PATH. Load Fiji's
+# bundled Java as a fallback without overriding an existing system Java.
+FIJI_JAVA_HELPER="${thisDir}/configureFijiJava.sh"
+if [[ ! -f "$FIJI_JAVA_HELPER" ]]; then
+	error "Cannot find Fiji Java helper: $FIJI_JAVA_HELPER"
+	exit 1
+fi
+if ! source "$FIJI_JAVA_HELPER"; then
+	error "Could not load Fiji Java helper: $FIJI_JAVA_HELPER"
+	exit 1
+fi
+if ! configureFijiJava; then
+	error "Could not configure Fiji's bundled Java runtime."
+	exit 1
+fi
+
 spacer="\n------------------------\n"
 printf "${spacer}bftools metadata for $(basename $img)${spacer}" >$outFile 
 bash $SCRIPTSDIR/bftools/showinf -nopix $img |grep -v "Parsing block" >> $outFile
@@ -108,5 +124,3 @@ exiftool $img >> $outFile
 
 # pass $outFile back to calling script for variable asignment and direct usage.
 echo $outFile
-
-

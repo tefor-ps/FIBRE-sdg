@@ -13,7 +13,7 @@ xvfb-run-safe.sh must be located in the same folder as this script.
 Other computers run fiji interactively as $ADMIN .
 
 README
-#fsdb-rev-date: 260119
+#fsdb-rev-date: 260826
 
 forceXvfb=0 # if this is greater than zero, it forces the execution in xvfb (on real Linux only) 
 force=1
@@ -46,11 +46,6 @@ intro $(basename $0)
 ## ======
 ## FUNCTION DEFINITIONS
 ## ======
-
-function installLatestJava(){
-	latestJDK="$( apt-cache search openjdk |grep -e "-jdk" |grep "(JDK)" |grep -v headless |sort |head -1 |cut -d " " -f 1)"
-	apt-get install -y "$latestJDK"
-}
 
 function complain(){
 # output not-treated files to log and dedicated file
@@ -245,18 +240,6 @@ function defineFiji(){
 ## ======
 ## FUNCTION CALLS
 ## ======
-# if no java is installed on the current machine, install the latest java runtime envorinment
-#DEPRECATED?
-which java >/dev/null
-if [[ $? -eq 1 ]]; then
-	installLatestJava
-else
-	jv=$(java --version |head -1 |cut -d " " -f 2 |cut -d "." -f 1)
-	if [[ $jv -le 8 ]]; then
-		installLatestJava
-	fi
-fi
-
 dbg "LOG: $LOG"
 
 dbg2 "call: $0 $@" |tee -a "$LOG"
@@ -264,6 +247,13 @@ dbg2 "call: $0 $@" |tee -a "$LOG"
 
 # make sure FIJIDIR and the scripts within are executable
 sudo chmod -R 770 "$FIJIDIR"
+
+# Make Fiji's bundled Java available as the last Java candidate on PATH.
+FIJI_JAVA_HELPER="${thisDir}/configureFijiJava.sh"
+[[ -f "$FIJI_JAVA_HELPER" ]] || fail "Can't find Fiji Java helper: $FIJI_JAVA_HELPER"
+source "$FIJI_JAVA_HELPER" || fail "Could not load Fiji Java helper: $FIJI_JAVA_HELPER"
+configureFijiJava || fail "Could not configure Fiji's bundled Java runtime."
+dbg2 "FIJI_JAVA: $FIJI_JAVA"
 
 # populate variables
 inArr=(${@})
