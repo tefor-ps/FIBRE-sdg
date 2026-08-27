@@ -136,5 +136,5 @@ WRITESCALEBAR_MAC $SDGMACROS/fsdb.sdg.writeScalebar.ijm
 
 # ==cron settings==
 # VARNAME_CRON m h dom mon dow user command
-SDG_CRON 45 */6 * * * root ${SDGGEN}
+SDG_CRON 45 */6 * * * root ${SECDATAGEN}
 
