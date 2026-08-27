@@ -79,14 +79,15 @@ MHA_FT .mha
 #### DO NOT MODIFY BELOW THIS POINT ####
 ### ==SCRIPTS==	
 # ==sedcondary data generation==
-SECDATAGEN $SDGDIR/runner.sh
+SECDATAGEN $SDGDIR/sdg.sh
 MAKEMETA $SDGDIR/writeMetadata.sh
 MAKECALLER $SDGDIR/makeCaller.sh
 MAKESECDATA $SDGDIR/makeSecData.sh
 #MAKESDGDIR_SRC $SDGDIR/makeSecDataDir.sh
 PNG2MOV $SDGDIR/ffmpeg-png2mp4.sh	# on old systems: avconv-png2mp4.sh, otherwise ffmpeg-png2mp4.sh
 REAPER $SDGDIR/reaper.sh	# <-- stops all active secondary data generation tasks
-MAKETODOLIST $SDGDIR/makeTodoList.sh        # <-- make todo-list for secondary data generation
+SDGPLAN $SDGDIR/sdg-plan.sh        # <-- make todo-list for secondary data generation
+SDGRUN $SDGDIR/sdg-run.sh	# <-- iterate of raw data lacking secondary data. 
 FIJIONSERVER $SDGDIR/fijiOnServer.sh
 #FIJIONSERVER $CORESCRIPTS/fijiXvfb.sh 
 
@@ -96,7 +97,6 @@ FIJI_SETUP $SDGINSTALL/setupFiji.sh
 ### ==MACROS==
 # wrapper macros
 CALLER $SDGMACROS/fsdb.$SDGNAME.caller.ijm
-INITIMAGE $SDGMACROS/fsdb.sdg.initImage.ijm
 
 # secData generating macros
 MIP_MAC $SDGMACROS/fsdb.sdg.mip.ijm
@@ -110,7 +110,7 @@ SAVEPNG_MAC $SDGMACROS/fsdb.sdg.savePng.ijm
 # data export macros
 SAVENRRD_MAC $SDGMACROS/fsdb.sdg.saveNrrd.ijm
 HD5_MAC $SDGMACROS/fsdb.sdg.hd5.ijm
-MHA_MAC $SDGMACROS/fsdb.sdg.saveMha.ijm
+#MHA_MAC $SDGMACROS/fsdb.sdg.saveMha.ijm
 
 # image processing macros
 SETCONTRAST_MAC $SDGMACROS/fsdb.sdg.setContrast.ijm
@@ -133,10 +133,6 @@ DEINTERLEAVE_MAC $SDGMACROS/fsdb.sdg.deinterleaveStack.ijm
 # image annotation macros
 WRITECONTRAST_MAC $SDGMACROS/fsdb.sdg.writeContrast.ijm
 WRITESCALEBAR_MAC $SDGMACROS/fsdb.sdg.writeScalebar.ijm
-
-# functional (helper) macros
-SDGFUNCTIONS $SDGMACROS/fsdb.sdg.secDataFunctions.ijm
-
 
 # ==cron settings==
 # VARNAME_CRON m h dom mon dow user command
