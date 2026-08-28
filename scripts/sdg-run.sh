@@ -66,10 +66,11 @@ source "$this_dir/sdg-common.sh"
 sdg_load_fsdb "$this_dir" || die "could not load FSDB"
 intro "$(basename "$0")"
 
-sdg_require_commands flock setsid
+sdg_require_commands flock setsid stat
 sdg_require_vars \
 	MAKESECDATA FIJIONSERVER SDG_CONTROL_DIR SDG_LOCK_DIR \
-	SDG_RUNTIME_DIR SDG_STATE_FILE SDG_RUN_LOCK SDG_JOBS
+	SDG_RUNTIME_DIR SDG_STATE_FILE SDG_RUN_LOCK SDG_JOBS \
+	minsize maxsize
 sdg_require_files MAKESECDATA FIJIONSERVER
 sdg_plan_assert_header "$plan"
 
@@ -79,6 +80,12 @@ if [[ -z $jobs_requested ]]; then
 fi
 [[ $jobs_requested =~ ^[1-9][0-9]*$ ]] \
 	|| fail "Invalid worker count: $jobs_requested"
+[[ $minsize =~ ^[0-9]+$ ]] \
+	|| fail "Invalid machine-profile minimum size: $minsize"
+[[ $maxsize =~ ^[0-9]+$ ]] \
+	|| fail "Invalid machine-profile maximum size: $maxsize"
+(( maxsize == 0 || minsize <= maxsize )) \
+	|| fail "Invalid machine-profile size range: $minsize-$maxsize"
 
 mkdir -p -- \
 	"$SDG_CONTROL_DIR/priority/incoming" \
@@ -118,6 +125,7 @@ worker_plan_paths=()
 worker_started=()
 active_workers=0
 job_failed=0
+jobs_deferred=0
 control_mode=""
 
 job_is_done() {
@@ -198,12 +206,22 @@ active_job_list() {
 write_state() {
 	local status=$1
 	local completed_jobs
+	local deferred_jobs
 	local temporary_state
 
 	temporary_state=$(mktemp "$(dirname -- "$SDG_STATE_FILE")/.state.XXXXXX")
 	completed_jobs=$(awk -F '\t' '
 		$2 == "DONE" { done[$1] = 1 }
 		END { print length(done) }
+	' "$main_results")
+	deferred_jobs=$(awk -F '\t' '
+		{ latest[$1] = $2 }
+		END {
+			for (job in latest) {
+				if (latest[job] == "DEFERRED") count++
+			}
+			print count + 0
+		}
 	' "$main_results")
 
 	{
@@ -213,6 +231,7 @@ write_state() {
 		printf 'runner_pid\t%s\n' "$$"
 		printf 'jobs\t%s\n' "$jobs_requested"
 		printf 'completed\t%s\n' "$completed_jobs"
+		printf 'deferred\t%s\n' "$deferred_jobs"
 		printf 'total\t%s\n' "$total_jobs"
 		printf 'active\t%s\n' "$active_workers"
 		printf 'active_jobs\t%s\n' "$(active_job_list)"
@@ -229,14 +248,50 @@ record_result() {
 	local status=$3
 	local started_utc=$4
 	local exit_status=$5
+	local detail=${6:-}
 
-	printf '%s\t%s\t%s\t%s\t%s\n' \
+	sdg_validate_field "result detail" "$detail"
+	printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
 		"$job_id" \
 		"$status" \
 		"$started_utc" \
 		"$(date -u +%FT%TZ)" \
 		"$exit_status" \
+		"$detail" \
 		>>"$plan_path.results.tsv"
+}
+
+job_capacity_detail() {
+	local plan_path=$1
+	local job_id=$2
+	local image
+	local file_size
+
+	image=$(sdg_plan_job_image "$plan_path" "$job_id")
+	if [[ -z $image ]]; then
+		printf 'Cannot resolve source image for job: %s' "$job_id"
+		return 2
+	fi
+
+	if ! file_size=$(sdg_plan_image_size "$plan_path" "$image"); then
+		printf 'Cannot resolve planned image size for job: %s' "$job_id"
+		return 2
+	fi
+
+	if (( file_size < minsize )); then
+		printf 'image=%s; size=%s; below host minimum=%s' \
+			"$image" "$file_size" "$minsize"
+		return 1
+	fi
+
+	if (( maxsize > 0 && file_size > maxsize )); then
+		printf 'image=%s; size=%s; above host maximum=%s' \
+			"$image" "$file_size" "$maxsize"
+		return 1
+	fi
+
+	printf 'image=%s; size=%s; host range=%s-%s' \
+		"$image" "$file_size" "$minsize" "$maxsize"
 }
 
 find_free_worker_slot() {
@@ -255,6 +310,38 @@ launch_job() {
 	local plan_path=$1
 	local job_id=$2
 	local slot
+	local capacity_detail
+	local capacity_status
+	local deferred_at
+
+	capacity_detail=$(job_capacity_detail "$plan_path" "$job_id")
+	capacity_status=$?
+
+	if (( capacity_status == 1 )); then
+		deferred_at=$(date -u +%FT%TZ)
+		record_result \
+			"$plan_path" \
+			"$job_id" \
+			DEFERRED \
+			"$deferred_at" \
+			0 \
+			"$capacity_detail"
+		warn "Deferred job on this host: $job_id ($capacity_detail)"
+		(( jobs_deferred += 1 ))
+		return 0
+	elif (( capacity_status != 0 )); then
+		deferred_at=$(date -u +%FT%TZ)
+		record_result \
+			"$plan_path" \
+			"$job_id" \
+			FAILED \
+			"$deferred_at" \
+			65 \
+			"$capacity_detail"
+		warn "Malformed plan job: $job_id ($capacity_detail)"
+		job_failed=1
+		return 0
+	fi
 
 	slot=$(find_free_worker_slot) || return 1
 	worker_plan_paths[$slot]=$plan_path
@@ -314,12 +401,28 @@ reap_finished_workers() {
 	done
 }
 
-request_pause_from_signal() {
+request_control_from_signal() {
+	local signal_name=$1
+
+	# A first interrupt drains active jobs. A second interrupt is an explicit
+	# escalation: terminate the exact worker process groups gracefully and keep
+	# their jobs pending. This avoids trapping an operator indefinitely behind a
+	# worker that cannot finish its post-processing step.
+	if [[ $signal_name == INT && -n $control_mode ]]; then
+		touch \
+			"$SDG_CONTROL_DIR/paused" \
+			"$SDG_CONTROL_DIR/cancel.request"
+		msg "Cancellation requested; terminating active jobs gracefully"
+		return
+	fi
+
 	touch "$SDG_CONTROL_DIR/paused"
 	control_mode=pause
 }
 
-trap request_pause_from_signal TERM INT HUP
+trap 'request_control_from_signal TERM' TERM
+trap 'request_control_from_signal INT' INT
+trap 'request_control_from_signal HUP' HUP
 
 load_retained_priority_plans
 enqueue_plan "$plan" normal
@@ -339,11 +442,13 @@ bash "$FIJIONSERVER" --cleanup-stale-stubs \
 	|| fail "Could not safely clean stale ImageJ stubs"
 
 write_state running
+msg "Runner capacity: COMP=${COMP:-$(hostname)}, minsize=$minsize, maxsize=$maxsize"
 
 while :; do
 	accept_new_priority_plans
 
-	if [[ -e $SDG_CONTROL_DIR/cancel.request && -z $control_mode ]]; then
+	# Cancellation is an escalation and must override an earlier pause or stop.
+	if [[ -e $SDG_CONTROL_DIR/cancel.request && $control_mode != cancel ]]; then
 		control_mode=cancel
 		touch "$SDG_CONTROL_DIR/paused"
 
@@ -422,6 +527,9 @@ case $control_mode in
 	*)
 		if (( job_failed != 0 )); then
 			write_state failed
+		elif (( jobs_deferred != 0 )); then
+			write_state deferred
+			msg "Plan finished with $jobs_deferred job(s) deferred on this host: $plan"
 		else
 			write_state completed
 			msg "Plan completed: $plan"

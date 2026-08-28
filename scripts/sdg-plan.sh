@@ -82,7 +82,7 @@ source "$this_dir/sdg-common.sh"
 sdg_load_fsdb "$this_dir" || die "could not load FSDB"
 intro "$(basename "$0")"
 
-sdg_require_commands awk find realpath sha256sum sort
+sdg_require_commands awk find realpath sha256sum sort stat
 sdg_require_vars \
 	SECDATA_EXT MAKEMETA MAKECALLER STACKEXTENSION \
 	SDG_PLAN_DIR SDG_CALLER_DIR SDG_GROUPS
@@ -107,7 +107,7 @@ cleanup_temporary_files() {
 trap cleanup_temporary_files EXIT
 
 {
-	printf 'SDG_PLAN\t1\n'
+	printf 'SDG_PLAN\t2\n'
 	printf 'META\tplan_id\t%s\n' "$plan_id"
 	printf 'META\tcreated_utc\t%s\n' "$(date -u +%FT%TZ)"
 	printf 'META\thost\t%s\n' "$(hostname)"
@@ -527,19 +527,14 @@ append_derived_outputs() {
 }
 
 job_count=0
-skipped_for_size=0
+image_count=0
 
 for image in "${candidate_images[@]}"; do
 	file_size=$(stat -c%s -- "$image")
-	echo "$(basename $image): $file_size"
-	if [[ ${minsize:-0} =~ ^[0-9]+$ && $file_size -lt ${minsize:-0} ]] ||
-		[[ ${maxsize:-0} =~ ^[0-9]+$ &&
-			${maxsize:-0} -gt 0 &&
-			$file_size -gt ${maxsize:-0} ]]; then
-		warn "Skipping size-incompatible image: $image"
-		(( ++skipped_for_size ))
-		continue
-	fi
+	sdg_validate_field "image path" "$image"
+	printf 'IMAGE\t%s\t%s\n' "$image" "$file_size" >>"$temporary_plan"
+	(( ++image_count ))
+	dbg "planning image: $image (size=$file_size)"
 
 	metadata_output=$(bash "$MAKEMETA" "$image") \
 		|| fail "Metadata extraction failed: $image"
@@ -619,7 +614,7 @@ done
 
 {
 	printf 'META\tjob_count\t%s\n' "$job_count"
-	printf 'META\tskipped_size\t%s\n' "$skipped_for_size"
+	printf 'META\timage_count\t%s\n' "$image_count"
 } >>"$temporary_plan"
 
 chmod 640 "$temporary_plan"

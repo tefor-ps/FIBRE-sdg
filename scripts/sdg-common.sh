@@ -203,8 +203,46 @@ sdg_plan_assert_header() {
 
 	[[ -f $1 ]] || fail "Plan does not exist: $1"
 	IFS=$'\t' read -r record version < "$1"
-	[[ $record == SDG_PLAN && $version == 1 ]] \
+	[[ $record == SDG_PLAN && ( $version == 1 || $version == 2 ) ]] \
 		|| fail "Unsupported or malformed SDG plan: $1"
+}
+
+sdg_plan_version() {
+	local record
+	local version
+
+	IFS=$'\t' read -r record version < "$1"
+	[[ $record == SDG_PLAN ]] || return 1
+	printf '%s\n' "$version"
+}
+
+sdg_plan_job_image() {
+	local plan=$1
+	local job_id=$2
+
+	awk -F '\t' -v id="$job_id" '
+		$1 == "JOB" && $2 == id { print $3; exit }
+	' "$plan"
+}
+
+sdg_plan_image_size() {
+	local plan=$1
+	local image=$2
+	local version
+	local planned_size
+
+	version=$(sdg_plan_version "$plan") || return 1
+	if [[ $version == 2 ]]; then
+		planned_size=$(awk -F '\t' -v image="$image" '
+			$1 == "IMAGE" && $2 == image { print $3; exit }
+		' "$plan")
+		[[ $planned_size =~ ^[0-9]+$ ]] || return 1
+		printf '%s\n' "$planned_size"
+	else
+		# Version 1 did not record input sizes. Retain compatibility with old
+		# paused plans by inspecting their source file at execution time.
+		stat -c%s -- "$image"
+	fi
 }
 
 sdg_job_id() {

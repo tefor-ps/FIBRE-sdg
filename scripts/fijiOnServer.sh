@@ -1,31 +1,37 @@
 #!/bin/bash
 
-# Run Fiji with an available graphical backend.
+# Run Fiji on a machine without a graphical desktop.
 #
-# SDG normally passes one generated caller macro. The legacy image/macro syntax
-# remains supported for other FSDB callers. Runtime scripts never install
-# dependencies or recursively change Fiji permissions; installation owns those
-# tasks.
+# Fiji's legacy macro language and a number of ImageJ plugins still instantiate
+# AWT components. Consequently, Fiji's native --headless mode is not a safe
+# default for FSDB. This wrapper starts a private Xvfb display for each job and
+# runs Fiji on that display. Native headless and an existing X11 display remain
+# available as explicit, opt-in backends for testing and interactive use.
 
 # fsdb-rev-date: 260828
 
-set -o nounset
 set -o pipefail
 
 usage() {
 	cat <<EOF
 Usage:
-  $(basename "$0") [--job-id ID] CALLER.IJM
-  $(basename "$0") [--job-id ID] IMAGE... MACRO.IJM [PARAMETER...]...
+  $(basename "$0") [OPTIONS] CALLER.IJM
+  $(basename "$0") [OPTIONS] IMAGE... MACRO.IJM [PARAMETER...]
   $(basename "$0") --cleanup-stale-stubs
 
 Options:
-  --job-id ID              Use a private temporary directory for one SDG job
+  --job-id ID              Isolate temporary files for one SDG job
+  --backend BACKEND        xvfb (default), native-headless, or x11
   --cleanup-stale-stubs    Safely remove global /tmp/ImageJ-*stub files
+  -h, --help               Show this help text
+
+The backend can also be selected with SDG_FIJI_BACKEND. Native headless is
+never selected automatically because some FSDB macros and plugins require AWT.
 EOF
 }
 
 job_id=""
+backend_override=""
 cleanup_stubs=0
 positional_arguments=()
 
@@ -39,6 +45,14 @@ while (( $# > 0 )); do
 			job_id=$2
 			shift 2
 			;;
+		--backend)
+			[[ -n ${2:-} ]] || {
+				printf 'ERROR: --backend requires a value\n' >&2
+				exit 2
+			}
+			backend_override=$2
+			shift 2
+			;;
 		--cleanup-stale-stubs)
 			cleanup_stubs=1
 			shift
@@ -46,6 +60,15 @@ while (( $# > 0 )); do
 		-h | --help)
 			usage
 			exit 0
+			;;
+		--)
+			shift
+			positional_arguments+=("$@")
+			break
+			;;
+		-*)
+			printf 'ERROR: Unknown option: %s\n' "$1" >&2
+			exit 2
 			;;
 		*)
 			positional_arguments+=("$1")
@@ -65,6 +88,7 @@ intro "$(basename "$0")"
 cleanup_legacy_stubs() {
 	local stub_file
 	local lock_directory=${SDG_LOCK_DIR:-/tmp}
+	local stub_lock_fd
 
 	sdg_require_commands flock find pgrep
 	mkdir -p -- "$lock_directory"
@@ -96,146 +120,232 @@ if [[ -n $job_id ]]; then
 
 	job_temporary_directory="${SDG_RUNTIME_DIR:-/tmp/fsdb-sdg}/jobs/$job_id/tmp"
 	mkdir -p -- "$job_temporary_directory"
-	find "$job_temporary_directory" \
-		-maxdepth 1 \
-		-name 'ImageJ-*stub' \
-		-delete
+	find "$job_temporary_directory" -maxdepth 1 -name 'ImageJ-*stub' -delete
 
-	# Fiji and Java now create their temporary files inside the job namespace.
-	# Concurrent jobs therefore never delete one another's active stubs.
+	# Concurrent jobs must not share Java or ImageJ temporary files.
 	export TMPDIR=$job_temporary_directory
 	export TMP=$job_temporary_directory
 	export TEMP=$job_temporary_directory
 	export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:+$JAVA_TOOL_OPTIONS }-Djava.io.tmpdir=$job_temporary_directory"
 fi
 
-# Existing policy: server operation uses a virtual display. Set force=0 only
-# for explicitly interactive operation. force_xvfb overrides Weston selection.
-force=1
-force_xvfb=0
+remove_job_stubs() {
+	[[ -n $job_temporary_directory ]] || return 0
+	find "$job_temporary_directory" -maxdepth 1 -name 'ImageJ-*stub' -delete
+}
 
-run_fiji_on_x11() {
-	dbg "X11" | tee -a "$LOG"
-	cd "$FIJIDIR" || return 1
+log_command() {
+	local argument
 
-	printf 'timeout %sm fiji %s -macro %s %s\n' \
-		"$TIMEOUTMINUTES" "$IMG" "$MACRO" "$PARAM"
-	timeout "${TIMEOUTMINUTES}m" \
-		fiji "$IMG" -macro "$MACRO" "$PARAM" \
-		2>>"$LOG"
+	{
+		printf 'Fiji command:'
+		for argument in "$@"; do
+			printf ' %q' "$argument"
+		done
+		printf '\n'
+	} >>"$LOG"
+}
+
+run_with_timeout() {
+	local -a command=("$@")
+
+	log_command "${command[@]}"
+	timeout --signal=TERM --kill-after=30s "${TIMEOUTMINUTES}m" \
+		"${command[@]}" 2>>"$LOG"
+}
+
+# The display lock is held for the complete Fiji invocation, not merely during
+# allocation, so parallel SDG workers cannot select the same display number.
+xvfb_pid=""
+xvfb_display=""
+xvfb_lock_fd=""
+xvfb_log=""
+
+release_xvfb_display() {
+	if [[ -n $xvfb_pid ]] && kill -0 "$xvfb_pid" 2>/dev/null; then
+		kill "$xvfb_pid" 2>/dev/null || true
+		wait "$xvfb_pid" 2>/dev/null || true
+	fi
+	xvfb_pid=""
+
+	if [[ -n $xvfb_lock_fd ]]; then
+		flock -u "$xvfb_lock_fd" 2>/dev/null || true
+		exec {xvfb_lock_fd}>&-
+	fi
+	xvfb_lock_fd=""
+	xvfb_display=""
+}
+
+display_is_in_use() {
+	local display_number=$1
+
+	[[ -e /tmp/.X11-unix/X${display_number} || \
+		-e /tmp/.X${display_number}-lock ]]
+}
+
+reserve_xvfb_display() {
+	local display_number
+	local candidate_fd
+	local display_min=${SDG_XVFB_DISPLAY_MIN:-99}
+	local display_max=${SDG_XVFB_DISPLAY_MAX:-599}
+	local lock_directory=${SDG_LOCK_DIR:-/tmp/fsdb-sdg-locks}/xvfb
+
+	[[ $display_min =~ ^[0-9]+$ ]] \
+		|| fail "Invalid SDG_XVFB_DISPLAY_MIN: $display_min"
+	[[ $display_max =~ ^[0-9]+$ ]] \
+		|| fail "Invalid SDG_XVFB_DISPLAY_MAX: $display_max"
+	(( display_min <= display_max )) \
+		|| fail "Xvfb display range is empty: $display_min-$display_max"
+
+	mkdir -p -- "$lock_directory"
+	for (( display_number = display_min; display_number <= display_max; display_number++ )); do
+		exec {candidate_fd}>>"$lock_directory/display-$display_number.lock" \
+			|| continue
+
+		if flock -n "$candidate_fd" && ! display_is_in_use "$display_number"; then
+			xvfb_lock_fd=$candidate_fd
+			xvfb_display=$display_number
+			return 0
+		fi
+
+		flock -u "$candidate_fd" 2>/dev/null || true
+		exec {candidate_fd}>&-
+	done
+
+	error "No free Xvfb display in range $display_min-$display_max"
+	return 1
+}
+
+wait_for_xvfb() {
+	local attempts=${SDG_XVFB_STARTUP_ATTEMPTS:-100}
+	local attempt
+
+	[[ $attempts =~ ^[1-9][0-9]*$ ]] \
+		|| fail "Invalid SDG_XVFB_STARTUP_ATTEMPTS: $attempts"
+
+	for (( attempt = 1; attempt <= attempts; attempt++ )); do
+		if ! kill -0 "$xvfb_pid" 2>/dev/null; then
+			wait "$xvfb_pid" 2>/dev/null || true
+			error "Xvfb exited before display :$xvfb_display became ready; see $xvfb_log"
+			return 1
+		fi
+
+		# Prefer an actual X protocol probe when x11-utils is installed. The
+		# socket check remains sufficient on minimal servers without xdpyinfo.
+		if command -v xdpyinfo >/dev/null 2>&1; then
+			if DISPLAY=":$xvfb_display" xdpyinfo >/dev/null 2>&1; then
+				return 0
+			fi
+		elif [[ -S /tmp/.X11-unix/X${xvfb_display} ]]; then
+			return 0
+		fi
+		sleep 0.1
+	done
+
+	error "Xvfb did not create display :$xvfb_display; see $xvfb_log"
+	return 1
+}
+
+start_xvfb() {
+	local screen=${SDG_XVFB_SCREEN:-1920x1080x24}
+
+	reserve_xvfb_display || return 1
+	xvfb_log=${job_temporary_directory:-${SDG_RUNTIME_DIR:-/tmp/fsdb-sdg}}/xvfb-${xvfb_display}.log
+	mkdir -p -- "$(dirname -- "$xvfb_log")"
+
+	Xvfb ":$xvfb_display" -screen 0 "$screen" -nolisten tcp -ac \
+		>"$xvfb_log" 2>&1 &
+	xvfb_pid=$!
+
+	if ! wait_for_xvfb; then
+		release_xvfb_display
+		return 1
+	fi
+
+	export DISPLAY=":$xvfb_display"
+	dbg "Xvfb display: $DISPLAY"
 }
 
 run_fiji_on_xvfb() {
-	dbg "Xvfb" | tee -a "$LOG"
-	[[ -f $XVFB ]] || {
-		error "Cannot find Xvfb wrapper: $XVFB"
-		return 1
-	}
+	local status=0
+	local -a fiji_command=("$FIJI_EXECUTABLE" "$@")
 
-	printf 'timeout time: %sm\n' "$TIMEOUTMINUTES" >>"$LOG"
-	printf 'timeout %sm %s "fiji %s -macro %s %s"\n' \
-		"$TIMEOUTMINUTES" "$XVFB" "$IMG" "$MACRO" "$PARAM" \
-		>>"$LOG"
-	timeout "${TIMEOUTMINUTES}m" \
-		"$XVFB" "fiji $IMG -macro $MACRO $PARAM" \
-		2>>"$LOG"
+	sdg_require_commands Xvfb flock timeout
+	start_xvfb || return 1
+	run_with_timeout "${fiji_command[@]}" || status=$?
+	release_xvfb_display
+	return "$status"
 }
 
-run_fiji_on_wayland() {
-	dbg "Wayland - Weston" | tee -a "$LOG"
-	command -v weston >/dev/null 2>&1 || {
-		error "Weston is not installed; runtime scripts do not install dependencies"
-		return 1
-	}
-	[[ -f $WESTON ]] || {
-		error "Cannot find Weston wrapper: $WESTON"
-		return 1
-	}
+run_fiji_native_headless() {
+	local -a fiji_command=("$FIJI_EXECUTABLE" --headless "$@")
 
-	printf 'timeout time: %sm\n' "$TIMEOUTMINUTES" >>"$LOG"
-	printf 'timeout %sm %s "fiji %s -macro %s %s"\n' \
-		"$TIMEOUTMINUTES" "$WESTON" "$IMG" "$MACRO" "$PARAM" \
-		>>"$LOG"
-	timeout "${TIMEOUTMINUTES}m" \
-		"$WESTON" "fiji $IMG -macro $MACRO $PARAM" \
-		2>>"$LOG"
+	warn "Using Fiji native headless mode; legacy AWT-dependent macros may fail"
+	sdg_require_commands timeout
+	run_with_timeout "${fiji_command[@]}"
+}
+
+run_fiji_on_x11() {
+	local -a fiji_command=("$FIJI_EXECUTABLE" "$@")
+
+	[[ -n ${DISPLAY:-} ]] || {
+		error "The x11 backend requires DISPLAY to be set"
+		return 1
+	}
+	sdg_require_commands timeout
+	run_with_timeout "${fiji_command[@]}"
 }
 
 run_fiji_on_windows() {
 	local fiji_executable="$FIJIDIR/ImageJ-win64.exe"
 
-	dbg "Windows" | tee -a "$LOG"
-	cd "$FIJIDIR" || return 1
-	"$fiji_executable" "$IMG" -macro "$MACRO" "$PARAM" 2>>"$LOG"
-}
-
-headless_backend() {
-	if (( force_xvfb != 0 )) && command -v Xvfb >/dev/null 2>&1; then
-		printf 'xvfb\n'
-	elif command -v weston >/dev/null 2>&1; then
-		printf 'wayland\n'
-	elif command -v Xvfb >/dev/null 2>&1; then
-		printf 'xvfb\n'
-	else
-		printf 'none\n'
-		return 1
-	fi
-}
-
-remove_job_stubs() {
-	[[ -n $job_temporary_directory ]] || return 0
-	find "$job_temporary_directory" \
-		-maxdepth 1 \
-		-name 'ImageJ-*stub' \
-		-delete
+	[[ -x $fiji_executable ]] \
+		|| fail "Cannot execute Fiji: $fiji_executable"
+	"$fiji_executable" "$@" 2>>"$LOG"
 }
 
 run_fiji() {
-	local backend
+	local selected_backend=${backend_override:-${SDG_FIJI_BACKEND:-xvfb}}
 	local run_status=0
 
-	dbg2 "$(date)" | tee -a "$LOG"
-
+	dbg2 "$(date)"
 	if [[ $(uname) != Linux ]]; then
-		run_fiji_on_windows
-		run_status=$?
-	elif grep -qi microsoft /proc/version; then
-		dbg "WSL" | tee -a "$LOG"
-		run_fiji_on_x11
-		run_status=$?
-	elif (( force == 0 )); then
-		run_fiji_on_x11
-		run_status=$?
+		run_fiji_on_windows "$@" || run_status=$?
 	else
-		backend=$(headless_backend) || backend=none
-		case $backend in
-			wayland)
-				run_fiji_on_wayland
-				run_status=$?
-				;;
+		case $selected_backend in
 			xvfb)
-				run_fiji_on_xvfb
-				run_status=$?
+				run_fiji_on_xvfb "$@" || run_status=$?
+				;;
+			native-headless)
+				run_fiji_native_headless "$@" || run_status=$?
+				;;
+			x11)
+				run_fiji_on_x11 "$@" || run_status=$?
 				;;
 			*)
-				error "No supported graphical backend is available"
-				run_status=1
+				error "Unsupported Fiji backend: $selected_backend"
+				run_status=2
 				;;
 		esac
 	fi
 
 	remove_job_stubs
-	if (( run_status == 124 )); then
-		dbg "$0 TIMEOUT" >>"$LOG"
+	if (( run_status == 124 || run_status == 137 )); then
+		warn "Fiji timed out after $TIMEOUTMINUTES minute(s)"
+	elif (( run_status != 0 )); then
+		error "Fiji exited with status $run_status"
 	else
-		dbg "$0 DONE" >>"$LOG"
+		dbg "Fiji completed"
 	fi
-	dbg2 "$(date)\n"
+	dbg2 "$(date)"
 	return "$run_status"
 }
 
-sdg_require_vars FIJIDIR TIMEOUTMINUTES XVFB WESTON LOG
+sdg_require_vars FIJIDIR TIMEOUTMINUTES LOG
 [[ -d $FIJIDIR ]] || fail "Cannot find Fiji directory: $FIJIDIR"
+
+FIJI_EXECUTABLE="$FIJIDIR/fiji"
+[[ -x $FIJI_EXECUTABLE ]] || fail "Cannot execute Fiji: $FIJI_EXECUTABLE"
 
 # Bio-Formats and Fiji wrappers call java from PATH. The helper appends Fiji's
 # bundled Java only as a fallback, preserving any earlier system Java choice.
@@ -249,18 +359,20 @@ configureFijiJava \
 	|| fail "Could not configure Fiji's bundled Java runtime"
 
 dbg "LOG: $LOG"
-dbg2 "call: $0 $*" | tee -a "$LOG"
+dbg2 "call: $0 $*"
 dbg2 "FIJI_JAVA: $FIJI_JAVA"
+
+# Ensure an interrupted wrapper cannot leave its private X server running.
+trap 'release_xvfb_display; remove_job_stubs' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 overall_status=0
 
 # The normal SDG path is intentionally simple: one generated caller contains
 # the import and all operations for exactly one image/series job.
 if (( $# == 1 )) && [[ -f $1 && $1 == *.ijm ]]; then
-	IMG=""
-	MACRO=$1
-	PARAM=""
-	run_fiji || overall_status=$?
+	run_fiji -macro "$1" || overall_status=$?
 else
 	input_arguments=("$@")
 	images=()
@@ -299,30 +411,32 @@ else
 	(( ${#images[@]} > 0 )) || fail "No input images were recognized"
 	(( ${#macros[@]} > 0 )) || fail "No Fiji macros were recognized"
 
-	for IMG in "${images[@]}"; do
-		file_size=$(stat -c%s -- "$IMG")
-		if (( file_size > maxsize )); then
-			error "$IMG is too large for this host" | tee -a "$LOG"
-			printf '%s\n' "$IMG" | tee -a "$LOGDIR/$D.tooBig.txt"
-			continue
-		fi
-		if (( force == 0 && file_size < minsize )); then
-			error "$IMG is too small for this host" | tee -a "$LOG"
-			printf '%s\n' "$IMG" | tee -a "$LOGDIR/$D.tooSmall.txt"
+	for image in "${images[@]}"; do
+		file_size=$(stat -c%s -- "$image")
+		if [[ ${maxsize:-0} =~ ^[0-9]+$ ]] &&
+			(( maxsize > 0 && file_size > maxsize )); then
+			warn "$image is too large for this host"
+			printf '%s\n' "$image" >>"$LOGDIR/$D.tooBig.txt"
 			continue
 		fi
 
 		for macro_index in "${!macros[@]}"; do
-			MACRO=${macros[$macro_index]}
-			PARAM=${macro_parameters[$macro_index]// /,}
+			macro=${macros[$macro_index]}
+			# ImageJ's macro interpreter exposes only one getArgument() string.
+			# Preserve the established FSDB bridge: compile every logical
+			# parameter into one comma-delimited payload, then pass that payload
+			# as one quoted command-array element. The macro converts commas back
+			# to its internal separator before parsing individual values.
+			parameter=${macro_parameters[$macro_index]// /,}
+			fiji_arguments=("$image" -macro "$macro")
+			[[ -z $parameter ]] || fiji_arguments+=("$parameter")
 
-			printf 'macro: %s\n' "$MACRO" | tee -a "$LOG"
-			printf 'param: %s\n' "$PARAM" | tee -a "$LOG"
-			printf 'image: %s\n' "$IMG" | tee -a "$LOG"
-			printf 'filesize: %s\n' "$file_size" | tee -a "$LOG"
-			whoami >>"$LOG"
+			printf 'macro: %s\n' "$macro" >>"$LOG"
+			printf 'parameter: %s\n' "$parameter" >>"$LOG"
+			printf 'image: %s\n' "$image" >>"$LOG"
+			printf 'filesize: %s\n' "$file_size" >>"$LOG"
 
-			run_fiji
+			run_fiji "${fiji_arguments[@]}"
 			macro_status=$?
 			if (( macro_status != 0 && overall_status == 0 )); then
 				overall_status=$macro_status
