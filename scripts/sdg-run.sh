@@ -432,7 +432,7 @@ rm -f -- \
 
 if [[ -e $SDG_CONTROL_DIR/paused ]]; then
 	write_state paused
-	msg "SDG is paused; plan retained"
+	warn "Paused plan cannot be executed directly; no jobs were started: $plan. Continue it with: sdg.sh resume --jobs $jobs_requested"
 	exit 0
 fi
 

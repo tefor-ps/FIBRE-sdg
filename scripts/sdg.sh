@@ -171,7 +171,30 @@ case $command_name in
 	execute)
 		parse_jobs "$@"
 		(( ${#remaining_args[@]} == 1 )) || fail "execute requires one PLAN"
-		exec bash "$SDGRUN" --jobs "$jobs_requested" "${remaining_args[0]}"
+		requested_plan=$(realpath -- "${remaining_args[0]}") \
+			|| fail "Cannot resolve plan: ${remaining_args[0]}"
+
+		# An explicit request to execute the exact retained plan is equivalent
+		# to resume. Keep a global pause authoritative for every other plan and
+		# while an active runner is still draining.
+		if [[ -e $SDG_CONTROL_DIR/paused ]]; then
+			state_status=$(sdg_read_state_value "$SDG_STATE_FILE" status)
+			state_plan=$(sdg_read_state_value "$SDG_STATE_FILE" plan)
+			if [[ -n $state_plan && -f $state_plan ]]; then
+				state_plan=$(realpath -- "$state_plan")
+			fi
+
+			if [[ $state_status == paused && $state_plan == "$requested_plan" ]]; then
+				warn "Paused plan was requested with execute; resuming automatically: $requested_plan"
+				rm -f -- \
+					"$SDG_CONTROL_DIR/paused" \
+					"$SDG_CONTROL_DIR/cancel.request"
+			else
+				fail "SDG is paused for another operation; refusing to execute: $requested_plan"
+			fi
+		fi
+
+		exec bash "$SDGRUN" --jobs "$jobs_requested" "$requested_plan"
 		;;
 
 	pause)
