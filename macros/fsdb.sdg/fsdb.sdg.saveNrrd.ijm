@@ -70,9 +70,15 @@ run("Duplicate...", "title=DUP duplicate");
 DID=getImageID();
 print("DID:", DID);
 if (channels > 1) {
-// split outPath as preparation for the inserion of the channel number
-	bp=replace(outPath, "\\..*", "");
-	suff=replace(outPath, bp, "");
+// split at the final extension. Paths and series names may contain dots.
+	dot=lastIndexOf(outPath, ".");
+	if (dot >= 0) {
+		bp=substring(outPath, 0, dot);
+		suff=substring(outPath, dot);
+	} else {
+		bp=outPath;
+		suff="";
+	}
 	print("bp:", bp,"\nsuff:", suff);
 // split duplicate into single channel images	
 	run("Split Channels");

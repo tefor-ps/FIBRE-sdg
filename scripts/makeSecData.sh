@@ -1,123 +1,169 @@
 #!/bin/bash
 
-# ensure correct reporting of failures within pipes
+# Execute one image/series job from an immutable SDG plan.
+#
+# The scheduler may run several copies of this script. A per-job flock prevents
+# accidental duplicate execution, while the caller and runtime directory are
+# unique to the job ID.
+
+set -o nounset
 set -o pipefail
 
-## =====================
-## DEFINITION OF HELP FUNCTION
-## =====================
+usage() {
+	cat <<EOF
+Usage: $(basename "$0") --plan FILE --job JOB_ID
+EOF
+}
 
-function usage() {
-<<readme
-INFO
-CALL
-INPUT
-OUTPUT
-readme
-		printf "\nUsage: sudo bash $0 [-h] file
-		" 1>&2
+die() {
+	printf 'ERROR: %s\n' "$*" >&2
 	exit 1
 }
 
-while getopts "h" opt; do
-	printf "Option -$opt was triggered. " >&2 
-	case $opt in
-		h)
+plan=""
+job_id=""
+
+while (( $# > 0 )); do
+	case $1 in
+		--plan)
+			[[ -n ${2:-} ]] || die "--plan requires a file"
+			plan=$2
+			shift 2
+			;;
+		--job)
+			[[ -n ${2:-} ]] || die "--job requires an ID"
+			job_id=$2
+			shift 2
+			;;
+		-h | --help)
 			usage
-			echo
+			exit 0
+			;;
+		*)
+			die "unknown option: $1"
 			;;
 	esac
 done
-shift $((OPTIND-1))
-			
 
-#IMAGE DETECTION
-if [[ ! -f "$1" ]]; then
-	echo "ERROR: $1 is not a file."
-	usage
-else
-	img=$(realpath $1)
-	printf  "\tImage: $(basename $img)\n"
-	imgDir=$(dirname $img)
-	suff=$(basename $img |awk -F "." '{print $NF}')
-	bn=$(basename $img |sed "s@.${suff}\$@@")
-	lock=$imgDir/$bn.lock
-	if [[ -f $lock ]]; then
-		echo "ERROR: $1 locked. Skipping."
-		exit
-	else
-		date>$lock
-	fi
+if [[ -z $plan || -z $job_id ]]; then
+	usage >&2
+	exit 2
 fi
 
-# get location of this script
-thisDir=$(dirname $(realpath "$0"))
+this_dir=$(dirname -- "$(realpath -- "$0")")
+# shellcheck source=sdg-common.sh
+source "$this_dir/sdg-common.sh"
 
-# get variables of fsdb from getVar.sh
-if ! source getVar; then
-	dir=$thisDir 
-	for _ in $(seq 1 4); do
-		GV=$(find "$dir" -name "getVar.sh" -print -quit)
-		if [[ -f $GV ]]; then 
-			source "${GV}"
-			break 
-		else
-			dir="$(dirname "$dir")"
+sdg_load_fsdb "$this_dir" || die "could not load FSDB"
+intro "$(basename "$0")"
+
+sdg_require_commands flock
+sdg_require_vars \
+	MAKECALLER FIJIONSERVER FIXPERMISSIONS SDG_LOCK_DIR SDG_RUNTIME_DIR
+sdg_require_files MAKECALLER FIJIONSERVER FIXPERMISSIONS
+sdg_plan_assert_header "$plan"
+
+job_record=$(awk -F '\t' -v id="$job_id" '
+	$1 == "JOB" && $2 == id { print; exit }
+' "$plan")
+[[ -n $job_record ]] || fail "Job is absent from plan: $job_id"
+
+IFS=$'\t' read -r \
+	record_type parsed_job_id image series series_count channel_count group \
+	caller_path output_directory output_basename \
+	<<<"$job_record"
+
+[[ $record_type == JOB && $parsed_job_id == "$job_id" ]] \
+	|| fail "Malformed JOB record for: $job_id"
+[[ -f $image ]] || fail "Input image is missing: $image"
+
+mapfile -t expected_outputs < <(
+	awk -F '\t' -v id="$job_id" '
+		$1 == "OUTPUT" && $2 == id {
+			print substr($0, length($1) + length($2) + 3)
+		}
+	' "$plan"
+)
+(( ${#expected_outputs[@]} > 0 )) || fail "Job has no expected outputs: $job_id"
+
+job_runtime_directory="$SDG_RUNTIME_DIR/jobs/$job_id"
+mkdir -p -- \
+	"$SDG_LOCK_DIR/jobs" \
+	"$job_runtime_directory" \
+	"$output_directory"
+
+exec {job_lock_fd}>>"$SDG_LOCK_DIR/jobs/$job_id.lock"
+if ! flock -n "$job_lock_fd"; then
+	warn "Job is already active: $job_id"
+	exit 75
+fi
+
+{
+	printf 'pid=%s\n' "$$"
+	printf 'plan=%s\n' "$plan"
+	printf 'image=%s\n' "$image"
+	printf 'series=%s\n' "$series"
+} >"$job_runtime_directory/owner"
+
+child_pid=""
+interrupted=0
+
+forward_signal() {
+	local signal_name=$1
+
+	interrupted=1
+	if [[ -n $child_pid ]]; then
+		kill -s "$signal_name" "$child_pid" 2>/dev/null || true
+	fi
+}
+
+cleanup_owner_record() {
+	rm -f -- "$job_runtime_directory/owner"
+}
+
+trap 'forward_signal TERM' TERM
+trap 'forward_signal INT' INT
+trap cleanup_owner_record EXIT
+
+outputs_are_complete() {
+	local output_path
+	local complete=0
+
+	for output_path in "${expected_outputs[@]}"; do
+		if [[ ! -f $output_path ]]; then
+			printf '  %s\n' "$output_path" >&2
+			complete=1
 		fi
 	done
-	if [[ ! -f "${GV}" ]]; then
-		echo "ERROR: Can't find getVar.sh"
-		exit 555
+	return "$complete"
+}
+
+if ! outputs_are_complete >/dev/null 2>&1; then
+	bash "$MAKECALLER" \
+		--plan "$plan" \
+		--job "$job_id" \
+		--output "$caller_path" \
+		|| fail "Caller rendering failed: $job_id"
+
+	msg "Running $job_id: $(basename -- "$image"), series $series/$series_count"
+	bash "$FIJIONSERVER" --job-id "$job_id" "$caller_path" &
+	child_pid=$!
+	wait "$child_pid"
+	fiji_status=$?
+	child_pid=""
+
+	(( interrupted == 0 )) || exit 130
+	(( fiji_status == 0 )) || fail "Fiji failed with status $fiji_status: $job_id"
+
+	if ! outputs_are_complete; then
+		error "Missing planned outputs for job $job_id"
+		fail "Output verification failed: $job_id"
 	fi
 fi
-intro $(basename $0)
 
-# define local debug level (overwrites global one). Comment out to follow global debug level.
-#debug=3
+# Permission policy remains centralized in fsdb-core. This runtime step repairs
+# only the completed output directory and never invokes sudo itself.
+bash "$FIXPERMISSIONS" -d "$output_directory" \
+	|| fail "Permission repair failed: $output_directory"
 
-
-outDir=${imgDir}/${bn}${SECDATA_EXT}
-dbg2 $outDir |tee $LOG
-mkdir -p $outDir
-
-# ensure lock file is removed when not needed anymore
-trap 'echo "Cleaning up"; rm -f "$lock"' INT TERM EXIT
-
-# write image metadata to file
-meta=$(sudo bash $MAKEMETA $img |tail -1)
-#get number of channels from metadata
-chNum=$(grep SizeC $meta |tail -1 |awk '{print $NF}')
-
-# create CALLER macro
-sudo bash $MAKECALLER $img
-
-# check if the output images already exist
-status=0
-for i in $(grep save $CALLER |cut -d "," -f 2 |tr -d "\"\);"); do
-	dbg2 $i
-	# nrrds are split into individual single-channel-images, which is not reflected in the file name provided in CALLER. 
-	if [[ $(echo $i |grep -c -e ".nrrd") -gt 0 ]]; then
-		dbg2 "looking for nrrd"
-		ibn=$(echo $i |cut -d "." -f 1)
-		dbg2 "ibn: $ibn"
-		isuff=$(echo $i |sed "s@$ibn@@")
-		dbg2 "isuff: $isuff"
-		for cn in $(seq 1 $chNum); do
-			dbg ${ibn}-C${cn}${isuff}
-			ls -l $(echo ${ibn}-C${cn}${isuff}) 2>/dev/null
-			status=$(($status+$?))
-		done
-#read ans
-	else
-		dbg2 "$i"
-		ls -l $i
-		status=$(($status+$?))
-	fi
-done
-dbg $status
-# run CALLER macro in fiji (on server)
-if [[ $status -gt 0 ]]; then
-	sudo bash $FIJIONSERVER $CALLER
-fi
-# fix permissions of secData
-bash $FIXPERMISSIONS -d $outDir
+msg "Completed SDG job: $job_id"

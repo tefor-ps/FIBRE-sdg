@@ -38,6 +38,37 @@ GLOBAL_IATOG 1				# <-- toggles ALL image-annotation on/off (main-switch)
 WRITECONTRAST_IATOG 1		# <-- writes the minimal and maximal displayed values into the secData (for each channel)
 WRITESCALEBAR_IATOG 1		# <-- writes a scalebar into the secData (only meaningful with calibrated data)
 
+### ==PLANNING AND EXECUTION==
+# Number of image/series jobs that sdg-run.sh may execute concurrently.
+# Keep this at 1 on low-resource storage servers; override with --jobs N when
+# running on a suitably provisioned workstation or compute server.
+SDG_JOBS 1
+
+# TODO (installer): optionally create and configure a dedicated FSDB service user.
+
+# Roots scanned by "sdg.sh run" when no explicit input is supplied.
+SDG_INPUT_ROOTS $STORAGEDIR $LABDATADIR
+
+# Groups are evaluated from left to right. _MATCH is a case-sensitive filename
+# substring or ALL. _SERIES accepts all, comma-separated numbers, and ranges.
+# Keep the catch-all DEFAULT group last when adding more groups.
+SDG_GROUPS DEFAULT
+SDG_GROUP_DEFAULT_MATCH ALL
+SDG_GROUP_DEFAULT_SERIES all
+# Example:
+# SDG_GROUPS HCS DEFAULT
+# SDG_GROUP_HCS_MATCH _HCS_
+# SDG_GROUP_HCS_SERIES 1-3
+
+### ==SDG RUNTIME LOCATIONS==
+SDG_PLAN_DIR $FSDBDIR/var/sdg/plans
+SDG_CALLER_DIR $FSDBDIR/var/sdg/callers
+SDG_CONTROL_DIR $FSDBDIR/var/sdg/control
+SDG_LOCK_DIR $FSDBDIR/var/sdg/locks
+SDG_RUNTIME_DIR $FSDBDIR/var/sdg/runtime
+SDG_STATE_FILE $SDG_RUNTIME_DIR/state.tsv
+SDG_RUN_LOCK $SDG_LOCK_DIR/run.lock
+
 ### ==SUFFIX FOR OUTPUT DIRECTORY==
 SECDATA_EXT -secData
 
@@ -78,26 +109,23 @@ MHA_FT .mha
 
 #### DO NOT MODIFY BELOW THIS POINT ####
 ### ==SCRIPTS==	
-# ==sedcondary data generation==
-SECDATAGEN $SDGDIR/runner.sh
+# ==secondary data generation==
+SECDATAGEN $SDGDIR/sdg.sh
 MAKEMETA $SDGDIR/writeMetadata.sh
 MAKECALLER $SDGDIR/makeCaller.sh
 MAKESECDATA $SDGDIR/makeSecData.sh
 #MAKESDGDIR_SRC $SDGDIR/makeSecDataDir.sh
 PNG2MOV $SDGDIR/ffmpeg-png2mp4.sh	# on old systems: avconv-png2mp4.sh, otherwise ffmpeg-png2mp4.sh
-REAPER $SDGDIR/reaper.sh	# <-- stops all active secondary data generation tasks
-MAKETODOLIST $SDGDIR/makeTodoList.sh        # <-- make todo-list for secondary data generation
+SDGPLAN $SDGDIR/sdg-plan.sh	# creates immutable secondary-data plans
+SDGRUN $SDGDIR/sdg-run.sh	# executes plan jobs and handles run controls
 FIJIONSERVER $SDGDIR/fijiOnServer.sh
 #FIJIONSERVER $CORESCRIPTS/fijiXvfb.sh 
 
 ### ==SDG INSTALLATION SCRIPTS== 
 FIJI_SETUP $SDGINSTALL/setupFiji.sh
+BFT_SETUP $SDGINSTALL/setupBioFormatsTools.sh
 
 ### ==MACROS==
-# wrapper macros
-CALLER $SDGMACROS/fsdb.$SDGNAME.caller.ijm
-INITIMAGE $SDGMACROS/fsdb.sdg.initImage.ijm
-
 # secData generating macros
 MIP_MAC $SDGMACROS/fsdb.sdg.mip.ijm
 AIP_MAC $SDGMACROS/fsdb.sdg.aip.ijm
@@ -110,7 +138,7 @@ SAVEPNG_MAC $SDGMACROS/fsdb.sdg.savePng.ijm
 # data export macros
 SAVENRRD_MAC $SDGMACROS/fsdb.sdg.saveNrrd.ijm
 HD5_MAC $SDGMACROS/fsdb.sdg.hd5.ijm
-MHA_MAC $SDGMACROS/fsdb.sdg.saveMha.ijm
+#MHA_MAC $SDGMACROS/fsdb.sdg.saveMha.ijm
 
 # image processing macros
 SETCONTRAST_MAC $SDGMACROS/fsdb.sdg.setContrast.ijm
@@ -134,11 +162,6 @@ DEINTERLEAVE_MAC $SDGMACROS/fsdb.sdg.deinterleaveStack.ijm
 WRITECONTRAST_MAC $SDGMACROS/fsdb.sdg.writeContrast.ijm
 WRITESCALEBAR_MAC $SDGMACROS/fsdb.sdg.writeScalebar.ijm
 
-# functional (helper) macros
-SDGFUNCTIONS $SDGMACROS/fsdb.sdg.secDataFunctions.ijm
-
-
 # ==cron settings==
 # VARNAME_CRON m h dom mon dow user command
-SDG_CRON 45 */6 * * * root ${SDGGEN}
-
+SDG_CRON 45 */6 * * * root ${SECDATAGEN} run

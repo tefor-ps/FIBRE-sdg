@@ -161,12 +161,11 @@ integrate_fiji() {
 ## ======
 
 thisDir=$(dirname "$(realpath "$0")")
+intro $(basename $0)
 
 # getVar also performs the standard FSDB root/sudo checks and sources
 # fun_colMsg.sh. From this point onward, use its messaging/debug API.
 find_and_source_getvar
-
-intro $(basename $0)
 
 dbg2 "setupFiji effective debug level: $(getLevel)"
 dbg2 "setupFiji script: $thisDir/$(basename "$0")"

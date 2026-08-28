@@ -1,132 +1,284 @@
 #!/bin/bash
-<<README
-This script is something like a minimal version of a fsdb-module, which can be used 
-as starting point for the development of more complex fsdb-modules.
-The variable fsdbDir needs to be defined as path to your fsdb-instance. 
-This can be the minimal version from https://gitlab.com/tefor/fsdb-minimal .
 
-- setup
-For de-novo development we suggest to install (at least) the minimal fsdb and 
-your module into a common root directory. E.g.,
-	mkdir dev-dir
-	cd dev-dir
-	git clone https://gitlab.com/tefor/fsdb-minimal.git
-	git clone https://gitlab.com/tefor/fsdb-module-defaultHeader
-	mv fsdb-module-defaultHeader yourNewModule
-	cd yourNewModule
-	mv module.defaultHeader.sh yourNewModule.sh
-	vim yourNewModule.sh #<-- configure fsdbDir as needed (see below)
-	mv module.config.default yourNewModule.config
-	rm -rf .git
-	git init
-subsequently you should test-run yourNewModule
-	sudo bash yourNewModule.sh
-which should yield
-	TESTVAR: giraffe
-	TESTDIR: [the directory you are runnning yourNewModule from]
+# Operator entry point for secondary-data generation.
+#
+# This script deliberately contains no image-processing logic. It coordinates
+# the planner and runner, exposes operational controls, and acquires the run
+# lock before discovery so overlapping cron invocations cannot create duplicate
+# plans.
 
-As the fsdb-minimal needs an OS-specific installation of FIJI you should subsequently
-install the correct FIJI version from https://imagej.net/software/fiji/downloads into 
-fsdb-minimal/scripts/Fiji.app and update it.
-	
-ALTERNATIVELY you can run the provided install/setup.sh, which is guiding you through
-the steps above, incl. the installation and update of the OS-specific version of FIJI
-via setupFiji.sh of fsdb-minimal.
-	
-- config-file
-TESTVAR and TESTDIR are defined in module.config.default which you renamed to yourNewModule.config.
-yourNewModule.config is the template for the configuration file of yourNewModule.
-By default it is a flat text file with a pair of variable-name and variable-value per line. 
-Comments are started with hash-tag (#). They can be in-line with a name-value pair.
+set -o nounset
+set -o pipefail
 
-- fsdbDir
-The variable fsdbDir enables this script to find getVar.sh, which populates/exports 
-all variables defined in the config-files of the fsdb.
-It is supposed to point to the (minimal) installation of the fsdb. 
-E.g., if you followed the steps above and this script is located in a directory 
-next to an fsdb-installation, the default value (fsdbDir=../../../fsdb-minimal) does not need 
-to be changed.
-	commonDir
-	|-fsdb-minimal
-	|-yourNewModule
-	|  |-yourNewModule.sh
-	|  |-yourNewModule.config
-	|  |-...
-	|-...
-Otherwise you will have to inform yourNewModule, where it can find your 
-fsdb-installation by redefining fsdbDir.
+usage() {
+	cat <<EOF
+Usage: $(basename "$0") COMMAND [OPTIONS]
 
-- debug
-The variable debug defines the verbosity of the debugging messages.
-If commented the DEBUGLEVEL (defined in fsdb.config) is govering the debugging.
-Valid levels are 0-3 with increasing verbosity.
+Commands:
+  plan [planner options]        Create a plan without executing it
+  run [--jobs N] [options]     Discover, plan, and execute configured inputs
+  process [--jobs N] IMAGE     Plan and execute one image
+  execute [--jobs N] PLAN      Execute an existing plan
+  pause                         Drain active jobs and retain unfinished work
+  resume [--jobs N]            Continue the retained plan
+  stop                          Drain active jobs and discard unfinished work
+  cancel-current               Gracefully terminate active jobs, then pause
+  priority IMAGE               Queue one image ahead of ordinary work
+  status                        Print machine-readable runner state
+EOF
+}
 
-- formatted/colored messages
-intro, dgb, and dbg2 are formatted printf commands defined in fun_colMsg.sh and sourced by getVar.sh.
+die() {
+	printf 'ERROR: %s\n' "$*" >&2
+	exit 1
+}
 
-- git
-local config files (*.config) are explicitly ignored by git (.gitignore).
+if (( $# == 0 )); then
+	usage >&2
+	exit 2
+fi
 
-README
+if [[ $1 == -h || $1 == --help ]]; then
+	usage
+	exit 0
+fi
 
-# get location of this script
-thisDir=$(dirname $(realpath "$0"))
+command_name=$1
+shift
 
-# get variables of fsdb from getVar.sh
-if ! source getVar; then
-	dir=$thisDir 
-	for _ in $(seq 1 4); do
-		GV=$(find "$dir" -name "getVar.sh" -print -quit)
-		if [[ -f $GV ]]; then 
-			source "${GV}"
-			break 
-		else
-			dir="$(dirname "$dir")"
-		fi
+this_dir=$(dirname -- "$(realpath -- "$0")")
+# shellcheck source=sdg-common.sh
+source "$this_dir/sdg-common.sh"
+
+sdg_load_fsdb "$this_dir" || die "could not load FSDB"
+intro "$(basename "$0")"
+
+sdg_require_commands flock
+sdg_require_vars \
+	SDGPLAN SDGRUN SDG_PLAN_DIR SDG_CONTROL_DIR SDG_LOCK_DIR \
+	SDG_STATE_FILE SDG_RUN_LOCK SDG_JOBS
+sdg_require_files SDGPLAN SDGRUN
+
+mkdir -p -- \
+	"$SDG_PLAN_DIR" \
+	"$SDG_CONTROL_DIR/priority/incoming" \
+	"$SDG_LOCK_DIR" \
+	"$(dirname -- "$SDG_STATE_FILE")"
+
+# Results populated by parse_jobs().
+jobs_requested=$SDG_JOBS
+remaining_args=()
+
+parse_jobs() {
+	jobs_requested=$SDG_JOBS
+	remaining_args=()
+
+	while (( $# > 0 )); do
+		case $1 in
+			--jobs)
+				[[ -n ${2:-} ]] || fail "--jobs requires a positive integer"
+				jobs_requested=$2
+				shift 2
+				;;
+			*)
+				remaining_args+=("$1")
+				shift
+				;;
+		esac
 	done
-	if [[ ! -f "${GV}" ]]; then
-		echo "ERROR: Can't find getVar.sh"
-		exit 555
+
+	[[ $jobs_requested =~ ^[1-9][0-9]*$ ]] \
+		|| fail "Invalid worker count: $jobs_requested"
+}
+
+runner_is_active() {
+	local lock_fd
+
+	exec {lock_fd}>>"$SDG_RUN_LOCK"
+	if flock -n "$lock_fd"; then
+		flock -u "$lock_fd"
+		exec {lock_fd}>&-
+		return 1
 	fi
-fi
-intro $(basename $0)
 
-#debug=2
+	exec {lock_fd}>&-
+	return 0
+}
 
-dbg "TESTVAR, debug-level 1: $TESTVAR"  # demo-output for debug-level 1 
-dbg2 "TESTDIR, debug-level 2: $TESTDIR" # demo-output for debug-level 2
+new_plan_path() {
+	printf '%s/%s-%s.plan.tsv\n' \
+		"$SDG_PLAN_DIR" \
+		"$(date -u +%Y%m%dT%H%M%SZ)" \
+		"$$"
+}
 
-#\\
+plan_and_run() {
+	local plan_path
+	local run_fd
+	local planner_status
 
+	# The same descriptor remains open while planner and runner execute. The
+	# runner receives --lock-held so it does not try to lock itself out.
+	exec {run_fd}>>"$SDG_RUN_LOCK"
+	if ! flock -n "$run_fd"; then
+		msg "Another SDG run is active; cron overlap skipped"
+		return 0
+	fi
 
-#$FIJIONSERVER /mnt/c/Users/teforadmin/tps/gitlab/dev-dir/fsdb-sdg/scripts/Fiji.app/macros/fsdb.fsdb-sdg/alive.ijm
-#$FIJIONSERVER /mnt/c/Users/teforadmin/tps/gitlab/dev-dir/secDataGeneration/scripts/Fiji.app/macros/sdg/alive.ijm
-#$FIJIONSERVER "$thisDir/../Fiji.app/macros/fsdb.sdg/alive.ijm"
-#$FIJIONSERVER "$(find "$(realpath "$thisDir/../Fiji.app")" -name alive.ijm)"
+	if [[ -e $SDG_CONTROL_DIR/paused ]]; then
+		msg "SDG is paused; no new plan was created"
+		return 0
+	fi
 
-#<<INACTIVE
-if [[ "$(file --brief -i "$1" |cut -d "/" -f 2 |cut -d ";" -f 1)" == "octet-stream"  ]]; then
-	echo "processing image $1"
-	$FIJIONSERVER "$(realpath "$thisDir/../Fiji.app/macros/fsdb.sdg/iterate.ijm")" "$1"
+	plan_path=$(new_plan_path)
+	bash "$SDGPLAN" --output "$plan_path" "${remaining_args[@]}"
+	planner_status=$?
+	if (( planner_status != 0 )); then
+		return "$planner_status"
+	fi
 
-elif [[ "$(file --brief -i "$1" |cut -d "/" -f 2 |cut -d ";" -f 1)" == "plain"  ]]; then
-	echo "processing content of $1:"
-	cat "$1"
-	cat "$1" |while read i; do 
-		$FIJIONSERVER "$(realpath "$thisDir/../Fiji.app/macros/fsdb.sdg/iterate.ijm")" "$i"
-	done
+	bash "$SDGRUN" --lock-held --jobs "$jobs_requested" "$plan_path"
+}
 
-elif [[ "$(file --brief -i "$1" |cut -d "/" -f 2 |cut -d ";" -f 1)" == "directory"  ]]; then
-	echo "processing raw data in $1:"
-	find $1 -type f -name "*nd2"
-	find $1 -type f -name "*nd2" |while read -r i; do 
-		$FIJIONSERVER "$(realpath "$thisDir/../Fiji.app/macros/fsdb.sdg/iterate.ijm")" "$i"
-	done
+mark_inactive_plan_stopped() {
+	local temporary_state
 
-else 
-	echo "ERROR: can not decipher $1. Exiting."
-	exit
+	temporary_state=$(mktemp "$(dirname -- "$SDG_STATE_FILE")/.state.XXXXXX")
+	awk -F '\t' '
+		$1 == "status" { print "status\tstopped"; next }
+		{ print }
+	' "$SDG_STATE_FILE" >"$temporary_state"
+	mv -- "$temporary_state" "$SDG_STATE_FILE"
+}
 
-fi
+case $command_name in
+	plan)
+		exec bash "$SDGPLAN" "$@"
+		;;
 
-#INACTIVE
+	run)
+		parse_jobs "$@"
+		plan_and_run
+		;;
+
+	process)
+		parse_jobs "$@"
+		(( ${#remaining_args[@]} == 1 )) || fail "process requires one IMAGE"
+		remaining_args=(--image "${remaining_args[0]}")
+		plan_and_run
+		;;
+
+	execute)
+		parse_jobs "$@"
+		(( ${#remaining_args[@]} == 1 )) || fail "execute requires one PLAN"
+		exec bash "$SDGRUN" --jobs "$jobs_requested" "${remaining_args[0]}"
+		;;
+
+	pause)
+		touch "$SDG_CONTROL_DIR/paused"
+		if runner_is_active; then
+			msg "Pause requested; active jobs will finish"
+		else
+			msg "SDG paused"
+		fi
+		;;
+
+	resume)
+		parse_jobs "$@"
+		(( ${#remaining_args[@]} == 0 )) || fail "resume accepts only --jobs N"
+
+		state_status=$(sdg_read_state_value "$SDG_STATE_FILE" status)
+		state_plan=$(sdg_read_state_value "$SDG_STATE_FILE" plan)
+
+		# A global pause can exist without a retained plan. In that case resume
+		# merely enables future cron runs.
+		if [[ $state_status != paused && -e $SDG_CONTROL_DIR/paused ]]; then
+			rm -f -- \
+				"$SDG_CONTROL_DIR/paused" \
+				"$SDG_CONTROL_DIR/cancel.request"
+			msg "Scheduling enabled; there was no paused plan"
+			exit 0
+		fi
+
+		[[ $state_status == paused && -f $state_plan ]] \
+			|| fail "No paused plan is available"
+
+		rm -f -- \
+			"$SDG_CONTROL_DIR/paused" \
+			"$SDG_CONTROL_DIR/cancel.request"
+		exec bash "$SDGRUN" --jobs "$jobs_requested" "$state_plan"
+		;;
+
+	stop)
+		if runner_is_active; then
+			touch "$SDG_CONTROL_DIR/stop.request"
+			msg "Stop requested; active jobs will finish"
+		else
+			state_status=$(sdg_read_state_value "$SDG_STATE_FILE" status)
+			rm -f -- \
+				"$SDG_CONTROL_DIR/paused" \
+				"$SDG_CONTROL_DIR/stop.request"
+
+			if [[ $state_status == paused ||
+				$state_status == running ||
+				$state_status == draining-* ]]; then
+				mark_inactive_plan_stopped
+				msg "Inactive plan marked stopped"
+			else
+				msg "No active or paused plan"
+			fi
+		fi
+		;;
+
+	cancel-current)
+		if runner_is_active; then
+			touch \
+				"$SDG_CONTROL_DIR/paused" \
+				"$SDG_CONTROL_DIR/cancel.request"
+			msg "Graceful cancellation requested"
+		else
+			warn "No active jobs"
+		fi
+		;;
+
+	priority)
+		(( $# == 1 )) || fail "priority requires one IMAGE"
+
+		priority_plan="$SDG_CONTROL_DIR/priority/incoming/$(date -u +%Y%m%dT%H%M%SZ)-$$.plan.tsv"
+		bash "$SDGPLAN" --priority --image "$1" --output "$priority_plan" \
+			|| exit $?
+
+		exec {priority_fd}>>"$SDG_RUN_LOCK"
+		if ! flock -n "$priority_fd"; then
+			msg "Priority plan queued"
+		elif [[ -e $SDG_CONTROL_DIR/paused ]]; then
+			msg "Priority plan queued until resume"
+		else
+			plan_name=$(basename -- "$priority_plan")
+			mv -- "$priority_plan" "$SDG_PLAN_DIR/$plan_name"
+			exec bash "$SDGRUN" \
+				--lock-held \
+				--jobs "$SDG_JOBS" \
+				"$SDG_PLAN_DIR/$plan_name"
+		fi
+		;;
+
+	status)
+		if [[ -f $SDG_STATE_FILE ]]; then
+			cat "$SDG_STATE_FILE"
+		else
+			printf 'status\tidle\n'
+		fi
+
+		if [[ -e $SDG_CONTROL_DIR/paused ]]; then
+			printf 'global_pause\tyes\n'
+		else
+			printf 'global_pause\tno\n'
+		fi
+		;;
+
+	*)
+		usage >&2
+		fail "Unknown command: $command_name"
+		;;
+esac

@@ -1,363 +1,335 @@
 #!/bin/bash
-<<README
-This script is a wrapper to run fiji headlessly.
-It accepts multiple images and macros, which must be directly followed by their 
-macro-specific parameters (multiple parameters accepted).
 
-For running on (storage-)servers (headless) this script is using the 
-helper-wrapper xvfb-run-safe.sh, which prevents screen-clashes when running 
-multiple instances in parallel.
-xvfb-run-safe.sh searches for a non-used screen before starting fiji.
-xvfb-run-safe.sh must be located in the same folder as this script.
+# Run Fiji with an available graphical backend.
+#
+# SDG normally passes one generated caller macro. The legacy image/macro syntax
+# remains supported for other FSDB callers. Runtime scripts never install
+# dependencies or recursively change Fiji permissions; installation owns those
+# tasks.
 
-Other computers run fiji interactively as $ADMIN .
+# fsdb-rev-date: 260828
 
-README
-#fsdb-rev-date: 260826
+set -o nounset
+set -o pipefail
 
-forceXvfb=0 # if this is greater than zero, it forces the execution in xvfb (on real Linux only) 
-force=1
+usage() {
+	cat <<EOF
+Usage:
+  $(basename "$0") [--job-id ID] CALLER.IJM
+  $(basename "$0") [--job-id ID] IMAGE... MACRO.IJM [PARAMETER...]...
+  $(basename "$0") --cleanup-stale-stubs
 
-# get location of this script
-thisDir=$(dirname $(realpath "$0"))
+Options:
+  --job-id ID              Use a private temporary directory for one SDG job
+  --cleanup-stale-stubs    Safely remove global /tmp/ImageJ-*stub files
+EOF
+}
 
-# get variables of fsdb from getVar.sh
-if ! source getVar; then
-	dir=$thisDir 
-	for _ in $(seq 1 4); do
-		GV=$(find "$dir" -name "getVar.sh" -print -quit)
-		if [[ -f $GV ]]; then 
-			source "${GV}"
-			break 
-		else
-			dir="$(dirname "$dir")"
-		fi
-	done
-	if [[ ! -f "${GV}" ]]; then
-		echo "ERROR: Can't find getVar.sh"
-		exit 555
+job_id=""
+cleanup_stubs=0
+positional_arguments=()
+
+while (( $# > 0 )); do
+	case $1 in
+		--job-id)
+			[[ -n ${2:-} ]] || {
+				printf 'ERROR: --job-id requires an ID\n' >&2
+				exit 2
+			}
+			job_id=$2
+			shift 2
+			;;
+		--cleanup-stale-stubs)
+			cleanup_stubs=1
+			shift
+			;;
+		-h | --help)
+			usage
+			exit 0
+			;;
+		*)
+			positional_arguments+=("$1")
+			shift
+			;;
+	esac
+done
+set -- "${positional_arguments[@]}"
+
+this_dir=$(dirname -- "$(realpath -- "$0")")
+# shellcheck source=sdg-common.sh
+source "$this_dir/sdg-common.sh"
+
+sdg_load_fsdb "$this_dir" || exit 1
+intro "$(basename "$0")"
+
+cleanup_legacy_stubs() {
+	local stub_file
+	local lock_directory=${SDG_LOCK_DIR:-/tmp}
+
+	sdg_require_commands flock find pgrep
+	mkdir -p -- "$lock_directory"
+
+	# Stub names are global, so cleanup must also be global and serialized.
+	exec {stub_lock_fd}>>"$lock_directory/imagej-stubs.lock"
+	flock "$stub_lock_fd"
+
+	if sdg_any_fiji_running; then
+		error "Refusing stale-stub cleanup while Fiji/ImageJ is active"
+		return 1
 	fi
+
+	while IFS= read -r -d '' stub_file; do
+		rm -f -- "$stub_file" || return 1
+	done < <(find /tmp -maxdepth 1 -name 'ImageJ-*stub' -print0)
+}
+
+if (( cleanup_stubs != 0 )); then
+	cleanup_legacy_stubs
+	exit $?
 fi
-intro $(basename $0)
 
-# define local debug level (overwrites global one). Comment out to follow global debug level.
-#debug=3
+(( $# > 0 )) || fail "No Fiji macro or image was provided"
 
-## ======
-## FUNCTION DEFINITIONS
-## ======
+job_temporary_directory=""
+if [[ -n $job_id ]]; then
+	[[ $job_id =~ ^[A-Za-z0-9._-]+$ ]] || fail "Unsafe job ID: $job_id"
 
-function complain(){
-# output not-treated files to log and dedicated file
-	dbg "$maxsize"
-	dbg "$fileSize"
-	dbg "$minsize"
-	if [[ "$fileSize" -gt "$maxsize" ]]; then
-		error "$rawImage is too big" |tee -a "$LOG"
-		echo "$rawImage" |tee -a "$LOGDIR/$D.tooBig.txt"
-	elif [[ "$fileSize" -lt "$minsize" ]]; then
-		error "$rawImage is too small" |tee -a "$LOG"
-		echo "$rawImage" |tee -a "$LOGDIR/$D.tooSmall.txt"
-	fi
-	exit
+	job_temporary_directory="${SDG_RUNTIME_DIR:-/tmp/fsdb-sdg}/jobs/$job_id/tmp"
+	mkdir -p -- "$job_temporary_directory"
+	find "$job_temporary_directory" \
+		-maxdepth 1 \
+		-name 'ImageJ-*stub' \
+		-delete
+
+	# Fiji and Java now create their temporary files inside the job namespace.
+	# Concurrent jobs therefore never delete one another's active stubs.
+	export TMPDIR=$job_temporary_directory
+	export TMP=$job_temporary_directory
+	export TEMP=$job_temporary_directory
+	export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:+$JAVA_TOOL_OPTIONS }-Djava.io.tmpdir=$job_temporary_directory"
+fi
+
+# Existing policy: server operation uses a virtual display. Set force=0 only
+# for explicitly interactive operation. force_xvfb overrides Weston selection.
+force=1
+force_xvfb=0
+
+run_fiji_on_x11() {
+	dbg "X11" | tee -a "$LOG"
+	cd "$FIJIDIR" || return 1
+
+	printf 'timeout %sm fiji %s -macro %s %s\n' \
+		"$TIMEOUTMINUTES" "$IMG" "$MACRO" "$PARAM"
+	timeout "${TIMEOUTMINUTES}m" \
+		fiji "$IMG" -macro "$MACRO" "$PARAM" \
+		2>>"$LOG"
 }
 
-function fijiOnX11(){
-# TODO: needs testing and potentially setup/modification of XAuth
-	dbg "X11" |tee -a "$LOG"
-	cd "$FIJIDIR" || exit
-	echo "timeout ${TIMEOUTMINUTES}m fiji $IMG -macro $MACRO $PARAM 2>>\"$LOG\""
-	timeout ${TIMEOUTMINUTES}m fiji $IMG -macro $MACRO $PARAM 2>>"$LOG"
+run_fiji_on_xvfb() {
+	dbg "Xvfb" | tee -a "$LOG"
+	[[ -f $XVFB ]] || {
+		error "Cannot find Xvfb wrapper: $XVFB"
+		return 1
+	}
+
+	printf 'timeout time: %sm\n' "$TIMEOUTMINUTES" >>"$LOG"
+	printf 'timeout %sm %s "fiji %s -macro %s %s"\n' \
+		"$TIMEOUTMINUTES" "$XVFB" "$IMG" "$MACRO" "$PARAM" \
+		>>"$LOG"
+	timeout "${TIMEOUTMINUTES}m" \
+		"$XVFB" "fiji $IMG -macro $MACRO $PARAM" \
+		2>>"$LOG"
 }
 
-function fijiOnXvfb(){
-	dbg "xvbf" |tee -a "$LOG"
-#check if helper script exists
-	if [[ ! -f "$XVFB" ]]; then
-		error " Can't find $XVFB"
-	fi
-	echo "timeout time: ${TIMEOUTMINUTES}m" >>$LOG
-# run macro in virtual environment (not headlessly) for as long as $TIMEOUTMINUTES minutes.
-# after $TIMEOUTMINUTES minutes, kill process because we have to assume, that it is stuck.
-	echo "timeout ${TIMEOUTMINUTES}m \"$XVFB\" \"fiji $IMG -macro $MACRO $PARAM\"" 2>>"$LOG"
-	timeout ${TIMEOUTMINUTES}m "$XVFB" "fiji $IMG -macro $MACRO $PARAM" 2>>"$LOG"
+run_fiji_on_wayland() {
+	dbg "Wayland - Weston" | tee -a "$LOG"
+	command -v weston >/dev/null 2>&1 || {
+		error "Weston is not installed; runtime scripts do not install dependencies"
+		return 1
+	}
+	[[ -f $WESTON ]] || {
+		error "Cannot find Weston wrapper: $WESTON"
+		return 1
+	}
+
+	printf 'timeout time: %sm\n' "$TIMEOUTMINUTES" >>"$LOG"
+	printf 'timeout %sm %s "fiji %s -macro %s %s"\n' \
+		"$TIMEOUTMINUTES" "$WESTON" "$IMG" "$MACRO" "$PARAM" \
+		>>"$LOG"
+	timeout "${TIMEOUTMINUTES}m" \
+		"$WESTON" "fiji $IMG -macro $MACRO $PARAM" \
+		2>>"$LOG"
 }
 
-function fijiOnWayland(){
-	dbg "Wayland - weston" |tee -a "$LOG"
-	which weston
-	if [[ $? -gt 0 ]]; then
-		dbg2 "installing missing weston" |tee -a "$LOG"
-		sudo apt update
-		sudo apt install -y weston xwayland
-	fi
-	if [[ ! -f "$WESTON" ]]; then
-		error " Can't find $WESTON"
-	fi
-	echo "timeout time: ${TIMEOUTMINUTES}m" >>$LOG
-# run macro in virtual environment (not headlessly) for as long as $TIMEOUTMINUTES minutes.
-# after $TIMEOUTMINUTES minutes, kill process because we have to assume, that it is stuck.
-	echo "timeout ${TIMEOUTMINUTES}m \"$WESTON\" \"fiji $IMG -macro $MACRO $PARAM\"" 2>>"$LOG"
-	timeout ${TIMEOUTMINUTES}m "$WESTON" "fiji $IMG -macro $MACRO $PARAM" 2>>"$LOG"
+run_fiji_on_windows() {
+	local fiji_executable="$FIJIDIR/ImageJ-win64.exe"
+
+	dbg "Windows" | tee -a "$LOG"
+	cd "$FIJIDIR" || return 1
+	"$fiji_executable" "$IMG" -macro "$MACRO" "$PARAM" 2>>"$LOG"
 }
 
-function fijiOnWindows() {
-	dbg "Windows" |tee -a "$LOG"
-	#for e.g., MobaXterm; doesn't really start-up
-# TODO: make this work, untested
-	cd "$FIJIDIR" ||exit
-	FIJI="$FIJIDIR/ImageJ-win64.exe"
-# run macro on image in normal fiji
-	#"$FIJI" -macro "$MACRO" "$PARAM" "$IMG" 2>>"$LOG"
-	"$FIJI" "$IMG" -macro "$MACRO" "$PARAM"  2>>"$LOG"
-}
-
-function fail(){
-	#intro "$@"
-	date
-	printf "\033[31mError in $(basename $0)::${FUNCNAME[2]}:${FUNCNAME[1]} $@ \033[0m"
-	printf "\033[31m\nExiting.\033[0m\n"
-	exit 128
-}
-
-function get_active_session_type() {
-#DEPRECATED	
-    local user=${SUDO_USER:-$USER}
-    local best_sid=""
-    local best_ts=0
-    local best_type=""
-
-    while read -r sid _; do
-        # Read all needed properties in one call
-        local Name Active Remote Seat Type Timestamp
-        readarray -t props < <(
-            loginctl show-session "$sid" \
-                -p Name -p Active -p Remote -p Seat -p Type -p Timestamp \
-                --value 2>/dev/null
-        )
-
-        # Skip if session disappeared
-        [ "${#props[@]}" -lt 6 ] && continue
-
-        Name=${props[0]}
-        Active=${props[1]}
-        Remote=${props[2]}
-        Seat=${props[3]}
-        Type=${props[4]}
-        Timestamp=${props[5]}
-
-        # Normalize timestamp → epoch (fallback safe)
-        local ts_epoch
-        ts_epoch=$(date -d "$Timestamp" +%s 2>/dev/null || echo 0)
-
-        # Apply filters
-        if [ "$Name" = "$user" ] &&
-           { [ "$Active" = "yes" ] || [ "$Active" = "online" ]; } &&
-           [ "$Remote" = "no" ] &&
-           [ "$Seat" = "seat0" ]; then
-
-            # Prefer Wayland immediately
-            if [ "$Type" = "wayland" ]; then
-                echo "wayland"
-                return 0
-            fi
-
-            # Otherwise keep best fallback (typically X11)
-            if [ -z "$best_sid" ] || [ "$ts_epoch" -ge "$best_ts" ]; then
-                best_sid=$sid
-                best_ts=$ts_epoch
-                best_type=$Type
-            fi
-        fi
-    done < <(loginctl list-sessions --no-legend)
-
-    # Fallback to best candidate
-    if [ -n "$best_sid" ]; then
-        echo "$best_type"
-        return 0
-    fi
-
-    # Final fallback: environment (containers / non-systemd)
-    if [ "$XDG_SESSION_TYPE" = "wayland" ] || [ -n "$WAYLAND_DISPLAY" ]; then
-        echo "wayland"
-    elif [ "$XDG_SESSION_TYPE" = "x11" ] || [ -n "$DISPLAY" ]; then
-        echo "x11"
-    else
-        echo "none"
-        return 1
-    fi
-}
-
-get_headless_display() {
-    if command -v weston &>/dev/null; then
-        echo "wayland"
-    elif command -v Xvfb &>/dev/null; then
-        echo "X11"
-    else
-        echo "none"
-    fi
-}
-
-function defineFiji(){
-	dbg2 "$(date)" |tee -a "$LOG"
-# define fiji to work with 
-	if [[ "$(uname)" == "Linux" ]]; then
-		if [[ $(grep -ic microsoft /proc/version) -gt 0 ]]; then
-			dbg "WSL" |tee -a "$LOG"
-			fijiOnX11
-		else
-			dbg "Linux" |tee -a "$LOG"
-			if [[ $force -eq 0 ]]; then
-				fijiOnX11
-			else
-				gs=$(get_headless_display)
-				dbg2 "gs: $gs"
-				if [[ "$gs" == "wayland" ]]; then
-					fijiOnWayland
-				elif [[ "$gs" == "X11" ]]; then
-					fijiOnXvfb
-				else
-					echo "Unknown graphical session. Exiting."
-					exit
-				fi
-			fi
-		fi
+headless_backend() {
+	if (( force_xvfb != 0 )) && command -v Xvfb >/dev/null 2>&1; then
+		printf 'xvfb\n'
+	elif command -v weston >/dev/null 2>&1; then
+		printf 'wayland\n'
+	elif command -v Xvfb >/dev/null 2>&1; then
+		printf 'xvfb\n'
 	else
-		dbg "Windows" |tee -a "$LOG"
-		fijiOnWindows
+		printf 'none\n'
+		return 1
 	fi
-	# clean-up leftovers of this run
-	sudo rm -vf /tmp/ImageJ-*stub
-	#
-	if [[ $? -eq 124 ]]; then
+}
+
+remove_job_stubs() {
+	[[ -n $job_temporary_directory ]] || return 0
+	find "$job_temporary_directory" \
+		-maxdepth 1 \
+		-name 'ImageJ-*stub' \
+		-delete
+}
+
+run_fiji() {
+	local backend
+	local run_status=0
+
+	dbg2 "$(date)" | tee -a "$LOG"
+
+	if [[ $(uname) != Linux ]]; then
+		run_fiji_on_windows
+		run_status=$?
+	elif grep -qi microsoft /proc/version; then
+		dbg "WSL" | tee -a "$LOG"
+		run_fiji_on_x11
+		run_status=$?
+	elif (( force == 0 )); then
+		run_fiji_on_x11
+		run_status=$?
+	else
+		backend=$(headless_backend) || backend=none
+		case $backend in
+			wayland)
+				run_fiji_on_wayland
+				run_status=$?
+				;;
+			xvfb)
+				run_fiji_on_xvfb
+				run_status=$?
+				;;
+			*)
+				error "No supported graphical backend is available"
+				run_status=1
+				;;
+		esac
+	fi
+
+	remove_job_stubs
+	if (( run_status == 124 )); then
 		dbg "$0 TIMEOUT" >>"$LOG"
 	else
 		dbg "$0 DONE" >>"$LOG"
 	fi
 	dbg2 "$(date)\n"
+	return "$run_status"
 }
 
-## ======
-## FUNCTION CALLS
-## ======
+sdg_require_vars FIJIDIR TIMEOUTMINUTES XVFB WESTON LOG
+[[ -d $FIJIDIR ]] || fail "Cannot find Fiji directory: $FIJIDIR"
+
+# Bio-Formats and Fiji wrappers call java from PATH. The helper appends Fiji's
+# bundled Java only as a fallback, preserving any earlier system Java choice.
+fiji_java_helper="$this_dir/configureFijiJava.sh"
+[[ -f $fiji_java_helper ]] \
+	|| fail "Cannot find Fiji Java helper: $fiji_java_helper"
+# shellcheck source=configureFijiJava.sh
+source "$fiji_java_helper" \
+	|| fail "Could not load Fiji Java helper: $fiji_java_helper"
+configureFijiJava \
+	|| fail "Could not configure Fiji's bundled Java runtime"
+
 dbg "LOG: $LOG"
-
-dbg2 "call: $0 $@" |tee -a "$LOG"
-# ensure, that all needed network drives are mounted
-
-# make sure FIJIDIR and the scripts within are executable
-sudo chmod -R 770 "$FIJIDIR"
-
-# Make Fiji's bundled Java available as the last Java candidate on PATH.
-FIJI_JAVA_HELPER="${thisDir}/configureFijiJava.sh"
-[[ -f "$FIJI_JAVA_HELPER" ]] || fail "Can't find Fiji Java helper: $FIJI_JAVA_HELPER"
-source "$FIJI_JAVA_HELPER" || fail "Could not load Fiji Java helper: $FIJI_JAVA_HELPER"
-configureFijiJava || fail "Could not configure Fiji's bundled Java runtime."
+dbg2 "call: $0 $*" | tee -a "$LOG"
 dbg2 "FIJI_JAVA: $FIJI_JAVA"
 
-# populate variables
-inArr=(${@})
-iArr=()
-mArr=()
-pArr=()
-j=0
+overall_status=0
 
-maxInd=$((${#inArr[@]}-1))
-dbg2 "maxInd: $maxInd"
-TESTER=/home/teforadmin/tps/gitlab/fsdb25//fsdb-sdg/macros/fsdb.sdg/fsdb.sdg.tester.ijm
-if [[ ${inArr[0]} == $TESTER ]]; then
-	dbg "tester detected" |tee -a "$LOG"
+# The normal SDG path is intentionally simple: one generated caller contains
+# the import and all operations for exactly one image/series job.
+if (( $# == 1 )) && [[ -f $1 && $1 == *.ijm ]]; then
 	IMG=""
-	MACRO=$TESTER
-	# define fiji to work with 
-	defineFiji
-elif [[ $maxInd -eq 0 && ${inArr[0]} == $CALLER ]]; then
-	dbg "caller detected" |tee -a "$LOG"
-	IMG=""
-	MACRO=$CALLER
-	# define fiji to work with 
-	defineFiji
+	MACRO=$1
+	PARAM=""
+	run_fiji || overall_status=$?
 else
-	for i in $(seq 0 $((${#inArr[@]}-1))); do	# analyze all provided parameters
-		dbg "$i ${inArr[$i]}"
-		if [[ -f "${inArr[$i]}" ]]; then		# work on parameters, which are files
-			if [[ "${inArr[$i]}" =~ ".ijm" ]]; then # work on files, which are macros
-				mArr[$j]="${inArr[$i]}"			# assign to macro-array (mArr)
-				dbg2 "$j: ${mArr[$j]}"
-				unset 'inArr[$i]'				# remove from input array (inArr)
-			#	dbg2 ":: $((${#inArr[@]}-1))"
-				if [[ $i -le $maxInd ]]; then
-					ni=$((i+1))					# increase index (next index, ni) to search for the parameters of the current macro
-					dbg2 "ni: $ni"
-					#read ans
-					if [[ -f ${inArr[$ni]}  ]]; then # if the next parameter is a file, there are no parameters to the current macro 
-						echo "next file"
-					else
-						tArr=()					# initialise temporary array (tArr) empty
-						while [[ ! -f ${inArr[$ni]} && $ni -le $maxInd ]]; do # assign all non-file parameters to tArr
-							tArr+=("${inArr[$ni]}")
-							dbg2 "$ni: ${tArr[@]}" 
-							unset 'inArr[$ni]'	# ... and remove them from inArr
-							ni=$((ni+1))
-						done
-						pArr[$j]="${tArr[@]}"	# assign macro parameters to parameter array (pArr) at the current index (j)
-					fi
-				fi
-				j=$((j+1))
-			else
-				iArr+=("${inArr[$i]}")			# if a detected file is not a macro, it must be an image; assign to image array (iArr)
-				unset 'inArr[$i]'				# ... and remove from inArr.
-			fi
+	input_arguments=("$@")
+	images=()
+	macros=()
+	macro_parameters=()
+	unrecognized=()
+	argument_index=0
+
+	# Legacy syntax treats existing non-IJM files as images. Non-file tokens
+	# immediately following a macro are collected as that macro's parameters.
+	while (( argument_index < ${#input_arguments[@]} )); do
+		argument=${input_arguments[$argument_index]}
+		if [[ -f $argument && $argument == *.ijm ]]; then
+			macros+=("$argument")
+			(( argument_index += 1 ))
+			parameters=()
+
+			while (( argument_index < ${#input_arguments[@]} )) &&
+				[[ ! -f ${input_arguments[$argument_index]} ]]; do
+				parameters+=("${input_arguments[$argument_index]}")
+				(( argument_index += 1 ))
+			done
+			macro_parameters+=("${parameters[*]}")
+		elif [[ -f $argument ]]; then
+			images+=("$argument")
+			(( argument_index += 1 ))
+		else
+			unrecognized+=("$argument")
+			(( argument_index += 1 ))
 		fi
 	done
-	
-	dbg3 "IN: ${inArr[@]}" |tee -a "$LOG"
-	dbg3 "I: ${iArr[@]}" |tee -a "$LOG"
-	dbg3 "M: ${mArr[@]}" |tee -a "$LOG"
-	dbg3 "P: ${pArr[@]}" |tee -a "$LOG"
-	
-	if [[ ${#inArr[@]} -eq 0 ]]; then	# If all elements of the list of inputs were recognized,...
-		
-		
-		
-		for IMG in ${iArr[@]}; do		# ... process each provided image ...
-			for i in ${!mArr[@]}; do	# ... with each provided macro (respecing their parameters)
-				echo
-				#echo $i
-				MACRO=${mArr[$i]}
-				PARAM=$(echo ${pArr[$i]} |sed 's@ @,@g')
-				echo "macro: $MACRO" |tee -a "$LOG"
-				echo "param: $PARAM" |tee -a "$LOG"
-				echo "image: $IMG" |tee -a "$LOG"
-	
-				whoami >> "$LOG"
-				
-				# check file size and make the decision to run on the current hardware or to skip the processing of this image
-				if [[ -f "$IMG" ]]; then
-					fileSize=$(ls -l "$IMG" |cut -d " " -f 5)
-				else
-					fileSize="$minsize"
-				fi 
-				echo "filesize: $fileSize" |tee -a "$LOG"
-				
-				if [[ "$fileSize" -gt "$maxsize"  ]]; then
-					complain	# exit, if file size is too big
-				fi
-				if [[ $force -eq 0 ]]; then
-					if [[  "$fileSize" -lt "$minsize" ]]; then
-						complain	# exit, if file size is too small
-					fi
-				fi
-				# define fiji to work with 
-				defineFiji
-			done
-		done
-	else
-		echo "ERROR: unclear elements in call: ${inArr[@]}. EXITING." |tee -a "$LOG"
-		exit
+
+	if (( ${#unrecognized[@]} > 0 )); then
+		fail "Unrecognized call elements: ${unrecognized[*]}"
 	fi
+	(( ${#images[@]} > 0 )) || fail "No input images were recognized"
+	(( ${#macros[@]} > 0 )) || fail "No Fiji macros were recognized"
+
+	for IMG in "${images[@]}"; do
+		file_size=$(stat -c%s -- "$IMG")
+		if (( file_size > maxsize )); then
+			error "$IMG is too large for this host" | tee -a "$LOG"
+			printf '%s\n' "$IMG" | tee -a "$LOGDIR/$D.tooBig.txt"
+			continue
+		fi
+		if (( force == 0 && file_size < minsize )); then
+			error "$IMG is too small for this host" | tee -a "$LOG"
+			printf '%s\n' "$IMG" | tee -a "$LOGDIR/$D.tooSmall.txt"
+			continue
+		fi
+
+		for macro_index in "${!macros[@]}"; do
+			MACRO=${macros[$macro_index]}
+			PARAM=${macro_parameters[$macro_index]// /,}
+
+			printf 'macro: %s\n' "$MACRO" | tee -a "$LOG"
+			printf 'param: %s\n' "$PARAM" | tee -a "$LOG"
+			printf 'image: %s\n' "$IMG" | tee -a "$LOG"
+			printf 'filesize: %s\n' "$file_size" | tee -a "$LOG"
+			whoami >>"$LOG"
+
+			run_fiji
+			macro_status=$?
+			if (( macro_status != 0 && overall_status == 0 )); then
+				overall_status=$macro_status
+			fi
+		done
+	done
 fi
 
 date >>"$LOG"
-
-exit 0
+exit "$overall_status"

@@ -6,6 +6,7 @@
 .cred-*
 test-*
 **/test-*
+!tests/test-*.sh
 *tester*
 frag-*
 *bup*
